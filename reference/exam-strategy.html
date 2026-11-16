@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시험 전략</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">레퍼런스 · 시험 전략</p>
+<h1>SAA-C03 시험 전략 치트시트</h1>
+<p class="lede">시험 형식 사실과 "지문의 이 표현 → 보통 이 답" 표를 한 장에. 표의 각 줄은 공식 문서에 근거가 있고, 오른쪽 링크로 해당 레슨에 돌아갈 수 있습니다. 연습 문제는 <a href="../lessons/0027-mock-exam.html">0027 종합 모의 문제</a>.</p>
+
+<h2>시험 형식</h2>
+<table>
+<tr><th>항목</th><th>내용</th></tr>
+<tr><td>문항 수 · 시간</td><td><strong>65문항 · 130분</strong> → 평균 문항당 2분<sup class="cite"><a href="https://aws.amazon.com/certification/certified-solutions-architect-associate/">[2]</a></sup></td></tr>
+<tr><td>채점 문항</td><td>50문항 채점 + <strong>15문항 비채점</strong>(평가용, 어느 것인지 표시 안 됨)<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup></td></tr>
+<tr><td>문항 유형</td><td><strong>객관식</strong>: 정답 1 + 오답 3 · <strong>복수 응답</strong>: 5개 이상 선택지 중 정답 2개 이상<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup></td></tr>
+<tr><td>추측</td><td>미응답 = 오답, <strong>추측 감점 없음</strong> → 절대 비워 두지 않기<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup></td></tr>
+<tr><td>점수</td><td>척도 점수 100–1,000, <strong>합격 720</strong>. 합격/불합격만 판정<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup></td></tr>
+<tr><td>채점 모델</td><td><strong>보상형</strong>: 영역별 합격선 없음, 전체 점수만 넘으면 됨<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup></td></tr>
+<tr><td>응시</td><td>Pearson VUE 시험장 또는 온라인 감독 · 한국어 제공 · 150 USD<sup class="cite"><a href="https://aws.amazon.com/certification/certified-solutions-architect-associate/">[2]</a></sup></td></tr>
+</table>
+
+<h2>도메인 비중</h2>
+<table>
+<tr><th>도메인</th><th>비중</th><th>65문항 환산(대략)</th></tr>
+<tr><td>1. 보안 아키텍처 설계</td><td>30%</td><td>약 20문항</td></tr>
+<tr><td>2. 복원력 있는 아키텍처 설계</td><td>26%</td><td>약 17문항</td></tr>
+<tr><td>3. 고성능 아키텍처 설계</td><td>24%</td><td>약 16문항</td></tr>
+<tr><td>4. 비용 최적화 아키텍처 설계</td><td>20%</td><td>약 13문항</td></tr>
+</table>
+<p class="muted" style="font-size:.85rem">비중은 채점 문항 기준입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup> 환산 문항 수는 단순 계산값이며 공식 수치가 아닙니다.</p>
+
+<h2>푸는 순서 (요령)</h2>
+<ol class="rules">
+  <li><strong>마지막 문장부터</strong> — "가장 비용 효율적", "가장 적은 운영 오버헤드", "가장 안전한"처럼 <em>무엇을 최적화하는지</em>를 먼저 찾는다. 여러 보기가 다 동작할 때 이 한 단어가 정답을 가른다.</li>
+  <li><strong>제약 조건에 밑줄</strong> — "중단되어도 됨", "추가 요금 없음", "코드 변경 최소", "즉시", "예외 없이" 같은 조건이 오답을 지운다.</li>
+  <li><strong>지우고 고르기</strong> — 존재하지 않는 기능(예: 보안 그룹 거부 규칙), 요구와 반대인 보기(공개, 수동 작업)부터 지운다. 남은 둘 중 최적화 기준에 더 맞는 쪽.</li>
+</ol>
+
+<h2>지문 키워드 → 보통 가리키는 답</h2>
+<table>
+<tr><th>지문에 이런 말이 나오면</th><th>먼저 떠올릴 답</th><th>근거 · 레슨</th></tr>
+<tr><td>최소 운영 오버헤드, 서버 관리 안 함</td><td><strong>관리형·서버리스</strong> (Lambda, Athena, EFS 등)</td><td>Lambda는 서버 프로비저닝·관리 없이 실행, 쓴 만큼 과금<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/welcome.html">[3]</a></sup> · <a href="../lessons/0013-lambda-and-containers.html">0013</a></td></tr>
+<tr><td>일시적 트래픽 급증, 늦어도 되지만 유실 금지</td><td><strong>SQS</strong>로 버퍼링·분리</td><td>분리, 다중 서버 저장, 급증 시 자동 확장, 기본 4일·최대 14일 보관<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">[4]</a></sup> · <a href="../lessons/0014-sqs-sns-eventbridge.html">0014</a></td></tr>
+<tr><td>한 이벤트를 여러 시스템이 각각 처리</td><td><strong>SNS → 여러 SQS 큐</strong> (팬아웃)</td><td>토픽 메시지가 구독 큐마다 전달되어 큐에 남음<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html">[5]</a></sup> · <a href="../lessons/0014-sqs-sns-eventbridge.html">0014</a></td></tr>
+<tr><td>실시간 스트리밍, 여러 앱이 같은 데이터를 동시에</td><td><strong>Kinesis Data Streams</strong></td><td>put-to-get 지연 보통 1초 미만, 여러 앱이 독립 소비<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">[6]</a></sup> · <a href="../lessons/0024-data-ingestion-and-analytics.html">0024</a></td></tr>
+<tr><td>S3 데이터에 가끔 SQL, 인프라 관리 없이</td><td><strong>Athena</strong></td><td>S3를 표준 SQL로 바로 쿼리, 서버리스, 쿼리당 과금<sup class="cite"><a href="https://docs.aws.amazon.com/athena/latest/ug/what-is.html">[7]</a></sup> · <a href="../lessons/0024-data-ingestion-and-analytics.html">0024</a></td></tr>
+<tr><td>중단 허용 + 비용 최소 (배치, 분석)</td><td><strong>스팟 인스턴스</strong></td><td>남는 용량 대폭 할인, 2분 전 중단 알림, Savings Plans 미적용<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[8]</a></sup> · <a href="../lessons/0010-ec2-instances-and-pricing.html">0010</a></td></tr>
+<tr><td>꾸준한 사용, 패밀리·리전 변경, Fargate·Lambda 포함</td><td><strong>Compute Savings Plans</strong> (특정 리전·패밀리 고정이면 EC2 Instance SP)</td><td>1·3년 약정, 패밀리·크기·리전·OS 무관 + Fargate·Lambda<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[9]</a></sup> · <a href="../lessons/0010-ec2-instances-and-pricing.html">0010</a></td></tr>
+<tr><td>예측 비용이 예산을 넘으면 알림</td><td><strong>AWS Budgets</strong></td><td>실제·예측 비용 알림을 이메일·SNS로<sup class="cite"><a href="https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html">[10]</a></sup> · <a href="../lessons/0026-cost-optimization.html">0026</a></td></tr>
+<tr><td>프라이빗 서브넷 → S3/DynamoDB, IGW·NAT 없이, 추가 요금 없이</td><td><strong>게이트웨이 VPC 엔드포인트</strong></td><td>IGW·NAT 불필요, 추가 요금 없음, 라우팅 테이블에 경로<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html">[11]</a></sup> · <a href="../lessons/0006-nat-and-vpc-endpoints.html">0006</a></td></tr>
+<tr><td>프라이빗 인스턴스가 인터넷으로 나가기만 (인바운드 시작 금지)</td><td><strong>퍼블릭 서브넷의 NAT 게이트웨이</strong> + 프라이빗 경로</td><td>퍼블릭 서브넷에 생성, 탄력적 IP, 외부 시작 연결 불가<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html">[12]</a></sup> · <a href="../lessons/0006-nat-and-vpc-endpoints.html">0006</a></td></tr>
+<tr><td>특정 IP 대역 차단</td><td><strong>네트워크 ACL 거부 규칙</strong> (보안 그룹은 허용만)</td><td>SG 허용 규칙만, NACL 허용·거부 + 번호 순 평가<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[13]</a></sup> · <a href="../lessons/0005-security-groups-vs-nacls.html">0005</a></td></tr>
+<tr><td>SQL 인젝션, HTTP 요청 내용 검사</td><td><strong>AWS WAF</strong> (ALB, CloudFront, API Gateway 등)</td><td>HTTP(S) 요청 검사, SQLi 규칙 문<sup class="cite"><a href="https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html">[14]</a></sup> · <a href="../lessons/0009-secrets-and-threat-protection.html">0009</a></td></tr>
+<tr><td>DB 암호 자동 교체</td><td><strong>Secrets Manager</strong></td><td>자동 교체, 관리형 교체 또는 Lambda 교체<sup class="cite"><a href="https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html">[15]</a></sup> · <a href="../lessons/0009-secrets-and-threat-protection.html">0009</a></td></tr>
+<tr><td>여러 계정 전체에 예외 없는 제한 (관리자 포함)</td><td><strong>SCP</strong> (단, 관리 계정에는 미적용)</td><td>최대 권한 가드레일, 멤버 계정 루트 포함<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[16]</a></sup> · <a href="../lessons/0003-organizations-scp-boundaries.html">0003</a></td></tr>
+<tr><td>직원이 기존 IdP로 여러 계정에 접근</td><td><strong>IAM Identity Center</strong> + 권한 세트</td><td>한 번 페더레이션, 권한 세트를 여러 계정에 배포<sup class="cite"><a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html">[17]</a></sup> · <a href="../lessons/0003-organizations-scp-boundaries.html">0003</a></td></tr>
+<tr><td>S3를 CloudFront로만 접근</td><td><strong>OAC</strong> + 버킷 정책(CloudFront 서비스 주체, SourceArn)</td><td>OAC 권장(OAI는 레거시), 웹 사이트 엔드포인트엔 OAC 불가<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[18]</a></sup> · <a href="../lessons/0025-cloudfront-and-global-accelerator.html">0025</a></td></tr>
+<tr><td>AZ 장애 시 DB 자동 장애 조치, 엔드포인트 유지</td><td><strong>RDS Multi-AZ</strong> (읽기 확장은 읽기 전용 복제본)</td><td>동기식 대기, 자동 전환, DNS 변경, 대기는 읽기 불가<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">[19]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[20]</a></sup> · <a href="../lessons/0021-rds-and-aurora.html">0021</a></td></tr>
+<tr><td>리전 장애, RPO 초 단위, RTO 1분 안팎, 로컬 읽기</td><td><strong>Aurora Global Database</strong></td><td>복제 지연 보통 1초 미만, 보조 리전 읽기 전용<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">[21]</a></sup>, 1분 이내 승격<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[22]</a></sup> · <a href="../lessons/0021-rds-and-aurora.html">0021</a></td></tr>
+<tr><td>DR: 즉시 처리 가능한 축소 환경 / 핵심만 켜 둠</td><td><strong>웜 스탠바이</strong> / <strong>파일럿 라이트</strong></td><td>파일럿 라이트는 추가 조치 없이 처리 불가, 웜 스탠바이는 즉시 처리<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[22]</a></sup> · <a href="../lessons/0017-disaster-recovery.html">0017</a></td></tr>
+<tr><td>주 리소스 비정상일 때만 DNS 전환</td><td><strong>Route 53 장애 조치 라우팅</strong> + 상태 확인</td><td>액티브-패시브용 정책<sup class="cite"><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html">[23]</a></sup> · <a href="../lessons/0016-regions-azs-route53.html">0016</a></td></tr>
+<tr><td>AZ 장애에도 유지, 비정상 인스턴스 자동 교체</td><td><strong>다중 AZ Auto Scaling 그룹</strong> + 로드 밸런서</td><td>비정상 감지·교체, 다른 AZ로 보충<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/auto-scaling-benefits.html">[24]</a></sup> · <a href="../lessons/0012-auto-scaling.html">0012</a></td></tr>
+<tr><td>DynamoDB 읽기 마이크로초, 코드 변경 최소</td><td><strong>DAX</strong></td><td>API 호환 인메모리 캐시, 최종적 일관성 읽기 대상<sup class="cite"><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DAX.html">[25]</a></sup> · <a href="../lessons/0022-dynamodb-and-elasticache.html">0022</a></td></tr>
+<tr><td>여러 Linux 인스턴스가 같은 파일 공유, 용량 자동</td><td><strong>EFS</strong> (Windows는 미지원)</td><td>서버리스·탄력적, NFSv4, 다중 AZ<sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">[26]</a></sup> · <a href="../lessons/0019-ebs-efs-fsx.html">0019</a></td></tr>
+<tr><td>전 세계에서 한 버킷으로 대용량 업로드</td><td><strong>S3 Transfer Acceleration</strong> + <strong>멀티파트 업로드</strong></td><td>엣지 경유 장거리 최적화<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/transfer-acceleration.html">[27]</a></sup>, 100MB 이상 멀티파트 권장<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">[28]</a></sup> · <a href="../lessons/0018-s3-storage-classes-lifecycle.html">0018</a></td></tr>
+<tr><td>고정 IP, TCP/UDP, 빠른 리전 장애 조치 / HTTP 콘텐츠 캐싱</td><td><strong>Global Accelerator</strong> / <strong>CloudFront</strong></td><td>애니캐스트 고정 IP, TCP·UDP 리스너<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/about-listeners.html">[29]</a></sup>; CloudFront는 엣지 캐싱으로 웹 콘텐츠 전달<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[30]</a></sup> · <a href="../lessons/0025-cloudfront-and-global-accelerator.html">0025</a></td></tr>
+<tr><td>접근 패턴 모름·변함</td><td><strong>S3 Intelligent-Tiering</strong></td><td>자동 계층 이동, 검색 요금 없음<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[31]</a></sup> · <a href="../lessons/0018-s3-storage-classes-lifecycle.html">0018</a></td></tr>
+<tr><td>연 1회 미만 접근, 몇 시간 대기 가능, 최저가</td><td><strong>S3 Glacier Deep Archive</strong> (밀리초 필요하면 Glacier Instant Retrieval)</td><td>검색 수 시간, 최소 180일<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[31]</a></sup> · <a href="../lessons/0018-s3-storage-classes-lifecycle.html">0018</a></td></tr>
+<tr><td>재생성 가능한 데이터, 가끔 접근, 더 싸게</td><td><strong>S3 One Zone-IA</strong></td><td>AZ 하나에 저장, AZ 손실에 취약<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[31]</a></sup> · <a href="../lessons/0018-s3-storage-classes-lifecycle.html">0018</a></td></tr>
+</table>
+
+<h2>자주 보는 함정</h2>
+<table>
+<tr><th>함정 보기</th><th>왜 틀리나</th></tr>
+<tr><td>보안 그룹에 거부 규칙 추가</td><td>보안 그룹은 허용 규칙만 있음<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[13]</a></sup></td></tr>
+<tr><td>읽기 전용 복제본으로 자동 장애 조치</td><td>복제본은 비동기식이고 DR에 쓰려면 승격 필요<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[32]</a></sup></td></tr>
+<tr><td>Multi-AZ 대기 인스턴스로 읽기 분산</td><td>대기 복제본은 읽기 트래픽을 처리하지 않음<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[20]</a></sup></td></tr>
+<tr><td>SCP로 관리 계정까지 제한</td><td>SCP는 관리 계정에 적용되지 않음<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[16]</a></sup></td></tr>
+<tr><td>프라이빗 서브넷에 NAT 게이트웨이</td><td>퍼블릭 NAT 게이트웨이는 퍼블릭 서브넷에 생성<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html">[12]</a></sup></td></tr>
+<tr><td>SQS 큐 하나를 여러 시스템이 나눠 읽어 "모두 처리"</td><td>메시지는 처리 후 삭제됨 → 팬아웃은 SNS+SQS<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">[4]</a></sup></td></tr>
+</table>
+
+<p class="muted" style="font-size:.85rem">출처:
+[1] <a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">SAA-C03 시험 가이드</a> ·
+[2] <a href="https://aws.amazon.com/certification/certified-solutions-architect-associate/">SAA 자격증 페이지(시험 형식)</a> ·
+[3] <a href="https://docs.aws.amazon.com/lambda/latest/dg/welcome.html">What is AWS Lambda?</a> ·
+[4] <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">What is Amazon SQS?</a> ·
+[5] <a href="https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html">SNS → SQS 팬아웃</a> ·
+[6] <a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">What is Kinesis Data Streams?</a> ·
+[7] <a href="https://docs.aws.amazon.com/athena/latest/ug/what-is.html">What is Amazon Athena?</a> ·
+[8] <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">Spot Instances</a> ·
+[9] <a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">Savings Plans types</a> ·
+[10] <a href="https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html">AWS Budgets</a> ·
+[11] <a href="https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html">Gateway endpoints</a> ·
+[12] <a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html">NAT gateways</a> ·
+[13] <a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">보안 그룹 vs 네트워크 ACL 비교</a> ·
+[14] <a href="https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html">AWS WAF</a> ·
+[15] <a href="https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html">Secrets Manager 교체</a> ·
+[16] <a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">SCPs</a> ·
+[17] <a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html">IAM Identity Center</a> ·
+[18] <a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">CloudFront S3 오리진 접근 제한</a> ·
+[19] <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">RDS Multi-AZ 장애 조치</a> ·
+[20] <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">RDS Multi-AZ DB 인스턴스</a> ·
+[21] <a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">Aurora Global Database</a> ·
+[22] <a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">DR 백서: Disaster recovery options in the cloud</a> ·
+[23] <a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html">Route 53 라우팅 정책</a> ·
+[24] <a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/auto-scaling-benefits.html">Auto Scaling benefits</a> ·
+[25] <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DAX.html">DAX</a> ·
+[26] <a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">What is Amazon EFS?</a> ·
+[27] <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/transfer-acceleration.html">S3 Transfer Acceleration</a> ·
+[28] <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">S3 멀티파트 업로드</a> ·
+[29] <a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/about-listeners.html">Global Accelerator 리스너</a> ·
+[30] <a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">What is Amazon CloudFront?</a> ·
+[31] <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">S3 스토리지 클래스</a> ·
+[32] <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">RDS 읽기 전용 복제본</a> ·
+레슨 <a href="../lessons/0027-mock-exam.html">0027 종합 모의 문제</a></p>
+</main>
+</body>
+</html>

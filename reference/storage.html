@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스토리지 치트시트</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">레퍼런스 · 스토리지</p>
+<h1>스토리지 치트시트</h1>
+<p class="lede">S3, EBS, 인스턴스 스토어, EFS, FSx, 하이브리드·전송 서비스를 고를 때 펼쳐 보는 한 장. 레슨 <a href="../lessons/0018-s3-storage-classes-lifecycle.html">0018</a> · <a href="../lessons/0019-ebs-efs-fsx.html">0019</a> · <a href="../lessons/0020-hybrid-storage-and-transfer.html">0020</a>.</p>
+
+<h2>S3 스토리지 클래스 (내구성은 전부 11 9s)</h2>
+<table>
+<tr><th>클래스</th><th>접근</th><th>첫 바이트</th><th>AZ</th><th>최소 보관</th><th>핵심</th></tr>
+<tr><td>Standard</td><td>월 1회 초과</td><td>ms</td><td>≥3</td><td>—</td><td>기본값</td></tr>
+<tr><td>Intelligent-Tiering</td><td>모름·변함</td><td>ms*</td><td>≥3</td><td>—</td><td>모니터링 요금, 검색 요금 없음, 30일→IA, 90일→Archive Instant, 128KB 미만 미모니터링</td></tr>
+<tr><td>Standard-IA</td><td>월 1회</td><td>ms</td><td>≥3</td><td>30일</td><td>검색 요금, 최소 과금 128KB</td></tr>
+<tr><td>One Zone-IA</td><td>월 1회, 재생성 가능</td><td>ms</td><td>1</td><td>30일</td><td>AZ 손실 시 손실 가능, CRR 복제본</td></tr>
+<tr><td>Express One Zone</td><td>지연 민감</td><td>한 자릿수 ms</td><td>1</td><td>—</td><td>디렉터리 버킷, 최대 10배 빠름</td></tr>
+<tr><td>Glacier Instant</td><td>분기 1회</td><td>ms</td><td>≥3</td><td>90일</td><td>즉시 읽히는 아카이브</td></tr>
+<tr><td>Glacier Flexible</td><td>연 1회</td><td>복원: 1–5분 / 3–5시간 / 5–12시간</td><td>≥3</td><td>90일</td><td>Expedited / Standard / Bulk</td></tr>
+<tr><td>Glacier Deep Archive</td><td>연 1회 미만</td><td>복원: 12시간 / 48시간 이내</td><td>≥3</td><td>180일</td><td><strong>Expedited 없음</strong>, 최저가</td></tr>
+</table>
+<p class="muted" style="font-size:.85rem">* 선택형 Archive/Deep Archive Access 계층은 복원 필요.</p>
+
+<h2>S3 데이터 관리 · 보호</h2>
+<table>
+<tr><td><strong>수명 주기</strong></td><td>전환(아래로만, 폭포) + 만료. 기존 객체에도 적용. Flexible→Deep Archive만, Deep Archive에서는 이동 불가. 128KB 미만 기본 미전환. 최소 보관 전 이동·삭제 시 잔여 기간 과금. <code>AbortIncompleteMultipartUpload</code>로 미완료 업로드 정리</td></tr>
+<tr><td><strong>버전 관리</strong></td><td>한 번 켜면 비버전 복귀 불가(일시 중지만). 단순 DELETE → 삭제 마커. 버전마다 전체 과금. MFA Delete: 루트(버킷 소유자)만, CLI/API로</td></tr>
+<tr><td><strong>복제</strong></td><td>CRR(다른 리전: 규정·지연) / SRR(같은 리전: 로그 집계, 계정 간, 데이터 주권). 양쪽 버전 관리 + IAM 역할. 교차 계정은 대상 버킷 정책 필요. 새 객체만 → 기존은 Batch Replication. RTC: 15분 내 99.99% SLA. 버전 지정 삭제는 미복제</td></tr>
+<tr><td><strong>Object Lock</strong></td><td>WORM, 버전 관리 필수. 거버넌스 = <code>s3:BypassGovernanceRetention</code>로 해제 가능. 규정 준수 = 루트 포함 아무도 불가. 법적 보존 = 기간 없음, 제거 전까지</td></tr>
+<tr><td><strong>공유 · 비용</strong></td><td>미리 서명된 URL: 생성자 권한, IAM 사용자 SigV4 최대 7일, 임시 자격 증명이면 그 만료와 함께. Requester Pays: 요청·다운로드는 요청자, 저장은 소유자, 익명 불가</td></tr>
+<tr><td><strong>성능</strong></td><td>접두사당 초당 3,500 쓰기 / 5,500 읽기, 접두사 수 무제한. 100MB 이상 멀티파트. Transfer Acceleration: 엣지 경유 원거리 업로드, 버킷 이름에 마침표 불가</td></tr>
+</table>
+
+<h2>EBS 볼륨 (같은 AZ의 인스턴스에만 연결)</h2>
+<table>
+<tr><th>유형</th><th>최대 IOPS</th><th>최대 처리량</th><th>용도</th></tr>
+<tr><td><strong>gp3</strong></td><td>80,000</td><td>2,000 MiB/s</td><td>기본 선택. 크기 무관 3,000 IOPS·125 MiB/s 포함, gp2보다 GiB당 20% 저렴</td></tr>
+<tr><td>gp2</td><td>16,000</td><td>250 MiB/s</td><td>GiB당 3 IOPS(최소 100), 1TiB 미만 3,000까지 버스트</td></tr>
+<tr><td><strong>io2 Block Express</strong></td><td>256,000</td><td>4,000 MiB/s</td><td>500μs 미만 평균 지연, 99.999% 내구성</td></tr>
+<tr><td>io1</td><td>64,000</td><td>1,000 MiB/s</td><td>I/O 집약 DB</td></tr>
+<tr><td><strong>st1</strong> (HDD)</td><td>500</td><td>500 MiB/s</td><td>빅데이터·로그 순차 처리. 부팅 불가</td></tr>
+<tr><td><strong>sc1</strong> (HDD)</td><td>250</td><td>250 MiB/s</td><td>자주 안 읽는 데이터, 최저가. 부팅 불가</td></tr>
+</table>
+<ul>
+  <li><strong>Multi-Attach</strong>: io1·io2만, 같은 AZ의 Nitro 인스턴스 최대 16대, 클러스터 파일 시스템 필요, 부팅 불가.</li>
+  <li><strong>스냅숏</strong>: 증분, 리전의 모든 AZ에 복제 → 다른 AZ로 옮기려면 스냅숏 후 복원. 자동 백업 아님(DLM·AWS Backup). Fast Snapshot Restore = 즉시 최대 성능.</li>
+  <li><strong>인스턴스 스토어</strong>: 호스트 물리 디스크, 추가 요금 없음. 재부팅 유지 / 중지·최대 절전·종료 시 소멸. 분리·재연결 불가. 캐시·스크래치용.</li>
+</ul>
+
+<h2>파일 스토리지</h2>
+<table>
+<tr><th>서비스</th><th>프로토콜</th><th>키워드</th></tr>
+<tr><td><strong>EFS</strong></td><td>NFS v4.0/4.1, Linux (Windows 미지원)</td><td>서버리스·탄력, Regional(다중 AZ)/One Zone, AZ당 마운트 타깃, 온프레미스는 DX·VPN. Standard / IA / Archive(90일)</td></tr>
+<tr><td><strong>FSx for Windows</strong></td><td>SMB</td><td>Active Directory, Windows ACL, Single/Multi-AZ</td></tr>
+<tr><td><strong>FSx for Lustre</strong></td><td>Lustre, Linux</td><td>HPC·ML, S3 연결(객체를 파일로, 결과를 S3로), 스크래치 vs 영구</td></tr>
+<tr><td><strong>FSx for NetApp ONTAP</strong></td><td>NFS·SMB·iSCSI·NVMe</td><td>멀티 프로토콜, NetApp 이전, SnapMirror, 자동 계층화</td></tr>
+<tr><td><strong>FSx for OpenZFS</strong></td><td>NFS v3–v4.2</td><td>ZFS·Linux 파일 서버 이전, 스냅숏·클론</td></tr>
+</table>
+
+<h2>하이브리드 · 전송</h2>
+<table>
+<tr><th>상황</th><th>답</th></tr>
+<tr><td>온프레미스 앱이 NFS/SMB로 S3 사용 + 로컬 캐시</td><td>S3 File Gateway</td></tr>
+<tr><td>iSCSI, S3 기본 + 자주 쓰는 것만 로컬</td><td>Volume Gateway 캐시형</td></tr>
+<tr><td>iSCSI, 전체 로컬 + S3로 스냅숏 백업</td><td>Volume Gateway 저장형</td></tr>
+<tr><td>테이프·VTL·기존 백업 소프트웨어 유지</td><td>Tape Gateway → Glacier Flexible / Deep Archive</td></tr>
+<tr><td>SMB로 FSx for Windows 캐시</td><td>FSx File Gateway — <strong>신규 고객 불가</strong></td></tr>
+<tr><td>NFS·SMB·HDFS·객체 → S3·EFS·FSx 이전/동기화, 검증·일정·증분</td><td>DataSync (온프레미스는 에이전트, AWS 간은 에이전트 불필요)</td></tr>
+<tr><td>파트너가 SFTP·FTPS·FTP·AS2로 전송, 서버 운영 없이</td><td>Transfer Family → S3·EFS</td></tr>
+<tr><td>회선으로 기한 내 불가능한 대용량</td><td>오프라인 물리 전송. 시험 보기에서는 Snowball. 현재 Snowball Edge는 신규 고객 불가, 상용 리전 지원 2026-12-31 종료 → Data Transfer Terminal(Enterprise Support) 또는 파트너</td></tr>
+</table>
+<p><strong>대역폭 계산</strong>: 1 Gbps ≈ 125MB/s ≈ 하루 10.8TB(100% 사용 가정). 100 Mbps ≈ 하루 1.08TB. 100TB @ 1 Gbps ≈ 9~10일.</p>
+
+<p class="muted" style="font-size:.85rem">출처: <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">S3 스토리지 클래스</a> · <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html">아카이브 복원 옵션</a> · <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html">수명 주기 전환</a> · <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html">복제</a> · <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html">Object Lock</a> · <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html">S3 성능</a> · <a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volume-types.html">EBS 볼륨 유형</a> · <a href="https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html">gp3/gp2</a> · <a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volumes-multi.html">Multi-Attach</a> · <a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-snapshots.html">EBS 스냅숏</a> · <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-store-lifetime.html">인스턴스 스토어 수명</a> · <a href="https://docs.aws.amazon.com/efs/latest/ug/features.html">EFS 기능</a> · <a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">AWS 스토리지 선택 가이드</a> · <a href="https://docs.aws.amazon.com/storagegateway/latest/vgw/WhatIsStorageGateway.html">Volume Gateway</a> · <a href="https://docs.aws.amazon.com/filegateway/latest/filefsxw/what-is-file-fsxw.html">FSx File Gateway</a> · <a href="https://docs.aws.amazon.com/datasync/latest/userguide/what-is-datasync.html">DataSync</a> · <a href="https://docs.aws.amazon.com/transfer/latest/userguide/what-is-aws-transfer-family.html">Transfer Family</a> · <a href="https://docs.aws.amazon.com/snowball/latest/developer-guide/whatisedge.html">Snowball Edge</a> · 레슨 <a href="../lessons/0018-s3-storage-classes-lifecycle.html">0018</a>, <a href="../lessons/0019-ebs-efs-fsx.html">0019</a>, <a href="../lessons/0020-hybrid-storage-and-transfer.html">0020</a></p>
+</main>
+</body>
+</html>

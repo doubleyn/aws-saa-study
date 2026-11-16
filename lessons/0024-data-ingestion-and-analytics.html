@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>데이터 수집과 분석</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0024 · 도메인 3 고성능 아키텍처 (24%) · Task 3.5</p>
+<h1>데이터가 들어와서 대시보드가 되기까지:<br>Kinesis, Glue, Athena, Lake Formation, EMR</h1>
+<p class="lede">분석 서비스는 이름이 많아 보이지만, 시험은 "수집 → 저장 → 변환·카탈로그 → 조회 → 시각화"의 어느 칸에 무엇이 들어가는지만 묻습니다. 오늘은 그 파이프라인 한 장을 머릿속에 그립니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/data-edge-cost.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>왜 이것부터인가</h2>
+<p><strong>시험에서</strong>: Task 3.5는 스트리밍(Kinesis), 변환(Glue, .csv → .parquet), 분석·시각화(Athena, Lake Formation, Amazon Quick), 처리용 컴퓨팅(EMR), 수집 지점 보안을 명시합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03-domain3.html">[1]</a></sup><br>
+<strong>실무에서</strong>: "로그를 S3에 쌓아 두고 SQL로 보자"는 요구는 거의 모든 팀에서 나옵니다. 서버 없이 만드는 법을 알면 하루 만에 끝납니다.</p>
+
+<h2>한 장으로 보는 파이프라인</h2>
+<figure>
+<svg viewBox="0 0 600 250" role="img" aria-label="생산자에서 Kinesis Data Streams 또는 Firehose를 거쳐 S3 데이터 레이크로, Glue가 카탈로그와 변환을 맡고 Athena와 EMR이 조회하며 Quick Sight가 시각화, Lake Formation이 권한을 관리" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah24" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <text x="10" y="18" font-size="11" fill="var(--muted)">수집</text>
+  <text x="200" y="18" font-size="11" fill="var(--muted)">저장</text>
+  <text x="330" y="18" font-size="11" fill="var(--muted)">카탈로그·변환</text>
+  <text x="480" y="18" font-size="11" fill="var(--muted)">조회·시각화</text>
+  <rect x="10" y="30" width="80" height="40" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="50" y="55" text-anchor="middle" font-size="12" fill="var(--fg)">생산자</text>
+  <rect x="10" y="95" width="150" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="85" y="113" text-anchor="middle" font-size="11" fill="var(--fg)">Kinesis Data Streams</text>
+  <text x="85" y="128" text-anchor="middle" font-size="10" fill="var(--muted)">실시간 · 소비자 직접 작성</text>
+  <rect x="10" y="155" width="150" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="85" y="173" text-anchor="middle" font-size="11" fill="var(--fg)">Amazon Data Firehose</text>
+  <text x="85" y="188" text-anchor="middle" font-size="10" fill="var(--muted)">버퍼링 후 목적지로 배달</text>
+  <rect x="195" y="110" width="100" height="70" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="245" y="138" text-anchor="middle" font-size="12" fill="var(--fg)">S3</text>
+  <text x="245" y="156" text-anchor="middle" font-size="10" fill="var(--muted)">데이터 레이크</text>
+  <rect x="325" y="60" width="125" height="45" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/>
+  <text x="387" y="80" text-anchor="middle" font-size="11" fill="var(--fg)">Glue 크롤러 →</text>
+  <text x="387" y="96" text-anchor="middle" font-size="11" fill="var(--fg)">Data Catalog</text>
+  <rect x="325" y="125" width="125" height="45" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/>
+  <text x="387" y="145" text-anchor="middle" font-size="11" fill="var(--fg)">Glue ETL</text>
+  <text x="387" y="161" text-anchor="middle" font-size="10" fill="var(--muted)">CSV → Parquet</text>
+  <rect x="480" y="45" width="110" height="34" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="535" y="67" text-anchor="middle" font-size="11" fill="var(--fg)">Athena (SQL)</text>
+  <rect x="480" y="92" width="110" height="34" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="535" y="114" text-anchor="middle" font-size="11" fill="var(--fg)">EMR (Spark)</text>
+  <rect x="480" y="150" width="110" height="34" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="535" y="172" text-anchor="middle" font-size="11" fill="var(--fg)">Quick Sight</text>
+  <rect x="325" y="205" width="265" height="34" rx="8" fill="none" stroke="var(--accent)" stroke-dasharray="4 3"/>
+  <text x="457" y="227" text-anchor="middle" font-size="11" fill="var(--accent)">Lake Formation: 카탈로그·S3 데이터 권한(열·행·셀)</text>
+  <line x1="50" y1="70" x2="50" y2="92" stroke="var(--muted)" marker-end="url(#ah24)"/>
+  <line x1="85" y1="135" x2="85" y2="152" stroke="var(--muted)" marker-end="url(#ah24)"/>
+  <line x1="160" y1="175" x2="192" y2="160" stroke="var(--muted)" marker-end="url(#ah24)"/>
+  <line x1="295" y1="130" x2="322" y2="88" stroke="var(--muted)" marker-end="url(#ah24)"/>
+  <line x1="295" y1="148" x2="322" y2="148" stroke="var(--muted)" marker-end="url(#ah24)"/>
+  <line x1="450" y1="78" x2="477" y2="65" stroke="var(--muted)" marker-end="url(#ah24)"/>
+  <line x1="450" y1="88" x2="477" y2="106" stroke="var(--muted)" marker-end="url(#ah24)"/>
+  <line x1="535" y1="126" x2="535" y2="147" stroke="var(--muted)" marker-end="url(#ah24)"/>
+</svg>
+<figcaption>KDS에서 Firehose로 이어지는 화살표: Firehose 스트림은 기존 Kinesis data stream을 소스로 읽을 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html">[4]</a></sup></figcaption>
+</figure>
+
+<h2>수집: Kinesis Data Streams vs Amazon Data Firehose</h2>
+<p>서비스 이름부터 확인합니다. AWS 문서의 현재 이름은 <strong>Amazon Data Firehose</strong>입니다(예전 이름 Kinesis Data Firehose). 시험 보기에 둘 중 어느 이름이 나와도 같은 서비스입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html">[4]</a></sup></p>
+<table>
+<tr><th></th><th>Kinesis Data Streams (KDS)</th><th>Amazon Data Firehose</th></tr>
+<tr><td>한 줄 정의</td><td>대량 스트림을 <strong>실시간</strong>으로 수집·처리. 넣고 꺼내기까지 보통 1초 미만<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">[2]</a></sup></td><td>스트리밍 데이터를 목적지까지 <strong>배달</strong>하는 완전 관리형 서비스. "애플리케이션을 작성하거나 리소스를 관리할 필요 없음"<sup class="cite"><a href="https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html">[4]</a></sup></td></tr>
+<tr><td>소비 방식</td><td>소비자 앱을 직접 작성(KCL, Lambda 등). <strong>여러 앱이 같은 스트림을 독립적으로</strong> 읽을 수 있음<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">[2]</a></sup></td><td>목적지 지정만: S3, Redshift, OpenSearch, Splunk, Iceberg 테이블, HTTP 엔드포인트 등<sup class="cite"><a href="https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html">[4]</a></sup></td></tr>
+<tr><td>데이터 보관</td><td>기본 24시간, 최대 8760시간(365일). 보관 기간 안에는 <strong>다시 읽기(재처리)</strong> 가능<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/kinesis-extended-retention.html">[3]</a></sup></td><td>버퍼 크기(MB) 또는 버퍼 간격(초)이 차면 목적지로 배달<sup class="cite"><a href="https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html">[4]</a></sup></td></tr>
+<tr><td>용량</td><td><strong>온디맨드</strong>(용량 계획 불필요, 예측 불가 트래픽) 또는 <strong>프로비저닝</strong>(샤드 수 지정, 예측 가능 트래픽)<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/how-do-i-size-a-stream.html">[5]</a></sup></td><td>자동</td></tr>
+<tr><td>변환</td><td>소비자 코드에서 직접</td><td>Lambda로 변환 후 배달 가능.<sup class="cite"><a href="https://docs.aws.amazon.com/firehose/latest/dev/data-transformation.html">[6]</a></sup> JSON을 <strong>Parquet/ORC로 변환</strong>해 S3에 저장 가능(스키마는 Glue Data Catalog에서 참조)<sup class="cite"><a href="https://docs.aws.amazon.com/firehose/latest/dev/record-format-conversion.html">[7]</a></sup></td></tr>
+</table>
+<p><strong>고르는 법</strong>: "실시간 처리", "여러 소비자", "재처리", "밀리초~초 단위 반응"이면 KDS. "S3/Redshift/OpenSearch에 <em>적재만</em>", "코드 없이", "최소 운영"이면 Firehose. 둘을 이어 KDS로 받고 Firehose로 S3에 보관하는 구성도 흔합니다.</p>
+<p><small>Kinesis 제품군에는 Kinesis Video Streams와 Managed Service for Apache Flink도 있습니다. 영상 스트림이면 Video Streams, 스트림 위에서 SQL/Flink로 실시간 분석이면 Flink라는 정도만 기억하세요.<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">[2]</a></sup></small></p>
+
+<h2>변환과 카탈로그: AWS Glue</h2>
+<p><strong>AWS Glue</strong>는 서버리스 데이터 통합 서비스로, 데이터 탐색·ETL·정제·중앙 카탈로그를 한 서비스에 묶었습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/glue/latest/dg/what-is-glue.html">[8]</a></sup></p>
+<ul>
+  <li><strong>Data Catalog</strong>: 테이블 정의(스키마, 위치, 파티션) 같은 메타데이터 저장소. Athena, EMR, Redshift Spectrum이 이 카탈로그로 바로 조회합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/glue/latest/dg/what-is-glue.html">[8]</a></sup></li>
+  <li><strong>크롤러</strong>: 데이터 저장소를 훑어 형식과 스키마를 추론하고 Data Catalog에 테이블을 만들거나 갱신합니다. 일정으로 반복 실행하면 새 파일과 파티션을 찾아 줍니다. S3의 <code>year=2019/month=Jan/</code> 같은 폴더는 파티션으로 인식합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/glue/latest/dg/add-crawler.html">[9]</a></sup></li>
+  <li><strong>ETL 작업</strong>: Spark 기반 서버리스 엔진에서 실행. 일정·온디맨드·이벤트로 트리거합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/glue/latest/dg/what-is-glue.html">[8]</a></sup> 시험의 ".csv → .parquet 변환"은 Glue 작업(또는 Athena CTAS 쿼리)이 정답입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/athena/latest/ug/columnar-storage.html">[11]</a></sup></li>
+</ul>
+
+<h2>조회: Athena, 그리고 왜 Parquet인가</h2>
+<p><strong>Amazon Athena</strong>는 S3에 있는 데이터를 표준 SQL로 바로 분석하는 대화형 쿼리 서비스입니다. 서버리스라 설정할 인프라가 없고 <strong>실행한 쿼리에 대해서만</strong> 비용을 냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/athena/latest/ug/what-is.html">[10]</a></sup> 그래서 Athena 비용·성능 최적화는 곧 <strong>스캔하는 데이터를 줄이는 것</strong>입니다.</p>
+<table>
+<tr><th>기법</th><th>효과</th></tr>
+<tr><td><strong>컬럼형 형식</strong>(Parquet, ORC)</td><td>열 단위 압축, 필요한 블록만 읽는 predicate pushdown, 병렬 읽기 분할<sup class="cite"><a href="https://docs.aws.amazon.com/athena/latest/ug/columnar-storage.html">[11]</a></sup></td></tr>
+<tr><td><strong>파티셔닝</strong>(예: 날짜별 폴더)</td><td>쿼리마다 스캔하는 데이터 양을 제한해 성능 향상·비용 절감. <code>WHERE</code>에 파티션을 지정하면 그 파티션만 스캔<sup class="cite"><a href="https://docs.aws.amazon.com/athena/latest/ug/partitions.html">[12]</a></sup></td></tr>
+</table>
+
+<h2>거버넌스: Lake Formation</h2>
+<p><strong>AWS Lake Formation</strong>은 S3 데이터 레이크의 데이터와 Glue Data Catalog 메타데이터에 대한 <strong>세분화된 접근 제어</strong>를 중앙에서 관리합니다. IAM 권한 모델을 보강하는 자체 권한 모델을 쓰며, RDBMS처럼 grant/revoke로 권한을 주고, 데이터베이스·테이블·<strong>열·행·셀</strong> 수준까지 제한합니다. 이 권한은 Athena, Redshift Spectrum, EMR, Glue, AWS Quick에서 강제됩니다. 여러 계정 간 데이터 공유도 지원합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/lake-formation/latest/dg/what-is-lake-formation.html">[13]</a></sup></p>
+<p>시험 신호: "분석가 그룹마다 <em>특정 열(PII)</em>만 숨기고 싶다", "데이터 레이크 권한을 한곳에서" → Lake Formation. S3 버킷 정책으로 열 단위 제어는 할 수 없습니다.</p>
+
+<h2>처리: EMR</h2>
+<p><strong>Amazon EMR</strong>(예전 Elastic MapReduce)은 Apache Hadoop, Apache Spark 같은 빅데이터 프레임워크를 실행하는 <strong>관리형 클러스터 플랫폼</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-what-is-emr.html">[14]</a></sup> 시험 신호: "기존 Hadoop/Spark 작업을 그대로 옮기고 싶다", "대규모 분산 처리를 직접 튜닝". 단순 SQL 조회라면 Athena가, 코드 최소 ETL이라면 Glue가 운영 부담이 더 적습니다.</p>
+
+<h2>시각화: Amazon Quick (구 QuickSight)</h2>
+<p>시험 가이드는 시각화 서비스를 "Amazon Quick"이라고 적습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03-domain3.html">[1]</a></sup> 이번에 확인한 AWS 문서(2026년 11월 기준)는 서비스를 <strong>AWS Quick</strong>이라 부르고, 대화형 시각화·BI 기능을 <strong>AWS Quick Sight</strong>로 소개합니다. 문서의 설명은 "AWS Quick은 Amazon QuickSight에서 발전했고, QuickSight는 Quick 안의 기능 AWS Quick Sight로 이어진다"입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/quick/latest/userguide/what-is.html">[15]</a></sup> 즉 보기에 QuickSight, Amazon Quick, AWS Quick Sight 중 무엇이 나오든 <strong>"데이터 소스에 연결해 대시보드를 만드는 관리형 BI"</strong>로 읽으면 됩니다.</p>
+
+<h2>수집 지점 보안</h2>
+<ul>
+  <li><strong>저장 시 암호화</strong>: KDS 서버 측 암호화는 지정한 KMS 키로 데이터가 저장되기 전에 암호화합니다. 다른 계정과 공유하면 KMS 키 정책 <em>그리고</em> 외부 계정의 IAM 정책 양쪽에 권한이 필요합니다(0002의 교차 계정 규칙).<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/what-is-sse.html">[16]</a></sup></li>
+  <li><strong>사설 경로</strong>: VPC 안의 생산자는 <strong>인터페이스 VPC 엔드포인트</strong>(PrivateLink)로 KDS에 연결하면 인터넷 게이트웨이나 NAT 없이 AWS 네트워크 안에서 통신합니다. 엔드포인트 정책이나 IAM 조건 <code>aws:sourceVpce</code>로 특정 엔드포인트를 통한 접근만 허용할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/vpc.html">[17]</a></sup></li>
+  <li><strong>데이터 레이크 접근</strong>: Lake Formation으로 열·행 단위 권한, CloudTrail로 접근 감사.<sup class="cite"><a href="https://docs.aws.amazon.com/lake-formation/latest/dg/what-is-lake-formation.html">[13]</a></sup></li>
+</ul>
+
+<div class="callout">
+<p class="label">시험 단골: 키워드 → 정답</p>
+<p><strong>실시간, 여러 소비자, 재처리</strong> → Kinesis Data Streams · <strong>S3/Redshift에 적재만, 코드 없이</strong> → Data Firehose · <strong>S3 데이터에 임시(ad-hoc) SQL, 서버리스</strong> → Athena · <strong>스키마 자동 발견</strong> → Glue 크롤러 · <strong>CSV → Parquet</strong> → Glue ETL(또는 Firehose 형식 변환, Athena CTAS) · <strong>Athena 비용 절감</strong> → Parquet + 파티셔닝 · <strong>열·행 단위 권한</strong> → Lake Formation · <strong>기존 Hadoop/Spark</strong> → EMR · <strong>대시보드</strong> → Amazon Quick(Quick Sight)</p>
+</div>
+
+<h2>연습</h2>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 웹 클릭스트림을 초 단위로 받아, 한 애플리케이션은 실시간 집계를 하고 다른 애플리케이션은 같은 데이터를 독립적으로 아카이브해야 합니다. 장애 시 지난 데이터를 다시 읽을 수 있어야 합니다. 가장 적합한 서비스는?</p>
+  <div class="options">
+    <button class="opt">Amazon SQS 표준 대기열 사용</button>
+    <button class="opt">Amazon Data Firehose</button>
+    <button class="opt">Kinesis Data Streams</button>
+    <button class="opt">AWS Glue 스트리밍 ETL 작업</button>
+  </div>
+  <div class="feedback"><p>여러 소비자 앱이 같은 스트림을 독립적으로 읽고, 보관 기간(기본 24시간, 최대 365일) 안에서 다시 읽을 수 있는 것은 KDS입니다. Firehose는 목적지로 배달하는 서비스라 직접 작성한 여러 소비자가 재처리하는 구조가 아닙니다. SQS는 메시지를 소비하면 삭제하므로 여러 앱이 같은 메시지를 독립적으로 읽는 용도가 아닙니다(0014).</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. IoT 기기의 JSON 데이터를 S3에 Parquet 형식으로 쌓아 Athena로 조회하려 합니다. 운영 오버헤드가 가장 적은 방법은?</p>
+  <div class="options">
+    <button class="opt">Firehose로 받으며 Parquet 형식 변환을 켠다</button>
+    <button class="opt">EC2에 변환 스크립트를 두고 cron으로 매시간 실행함</button>
+    <button class="opt">EMR 클러스터를 상시 띄워 Spark로 변환 작업 실행</button>
+    <button class="opt">KDS 소비자 앱을 직접 작성해 Parquet로 저장한다</button>
+  </div>
+  <div class="feedback"><p>Firehose는 JSON을 Parquet/ORC로 변환해 S3에 저장할 수 있고, 스키마는 Glue Data Catalog에서 참조합니다. 코드도 서버도 없습니다. EMR과 EC2는 클러스터·인스턴스 관리가 필요하고, KDS 소비자 앱은 직접 작성·운영해야 합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q3. 분석팀이 S3에 쌓인 수 TB의 CSV 로그에 Athena로 매일 쿼리하는데 비용이 큽니다. 대부분 쿼리는 최근 7일, 몇 개 열만 봅니다. 비용을 가장 크게 줄이는 방법은?</p>
+  <div class="options">
+    <button class="opt">S3 버킷을 S3 Standard-IA 클래스로 바꾼다</button>
+    <button class="opt">Athena 대신 상시 EMR 클러스터로 모두 조회한다</button>
+    <button class="opt">CSV 파일을 gzip이 아닌 zip으로 다시 압축한다</button>
+    <button class="opt">CSV를 Parquet로 변환하고 날짜별로 파티셔닝한다</button>
+  </div>
+  <div class="feedback"><p>Athena는 실행한 쿼리에 비용을 내므로 스캔량을 줄이는 것이 핵심입니다. 컬럼형 형식은 필요한 열과 블록만 읽고, 날짜 파티션은 <code>WHERE</code>로 지정한 기간만 스캔합니다. Standard-IA는 저장 요금을 줄이지만 자주 읽는 데이터라 조회 요금이 붙고 쿼리 스캔량은 그대로입니다(0018). 상시 EMR은 운영과 비용이 늘어납니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. 데이터 레이크의 고객 테이블에서 마케팅 분석가는 이메일·전화번호 열을 볼 수 없어야 하고, 재무 분석가는 특정 국가 행만 봐야 합니다. 둘 다 Athena를 씁니다. 가장 적합한 방법은?</p>
+  <div class="options">
+    <button class="opt">팀별로 S3 버킷 정책을 나눠서 접두사 단위로 제한한다</button>
+    <button class="opt">Lake Formation으로 열·행 수준 권한을 부여</button>
+    <button class="opt">팀마다 필요한 열만 담은 CSV 사본을 따로 만들어 둠</button>
+    <button class="opt">IAM 정책의 Condition으로 열 이름을 제한한다</button>
+  </div>
+  <div class="feedback"><p>Lake Formation은 데이터베이스·테이블·열·행·셀 수준 권한을 중앙에서 관리하고, Athena 같은 분석 서비스에서 이를 강제합니다. 버킷 정책은 객체(접두사) 단위라 한 파일 안의 열을 가릴 수 없고, 사본을 만들면 관리 부담과 불일치가 생깁니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,3">
+  <p class="q-title">Q5. 새로운 CSV 파일이 매일 S3에 도착합니다. 스키마를 자동으로 파악해 카탈로그에 등록하고, 서버 관리 없이 Parquet로 변환해 두려 합니다. 어떤 조합이 맞습니까? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">일정으로 실행하는 AWS Glue 크롤러를 설정함</button>
+    <button class="opt">EC2에서 상시 실행하는 Hive 메타스토어 서버</button>
+    <button class="opt">Kinesis Video Streams로 업로드함</button>
+    <button class="opt">CSV를 Parquet로 저장하는 Glue ETL</button>
+    <button class="opt">S3 수명 주기 규칙으로 Parquet 형식 전환</button>
+  </div>
+  <div class="feedback"><p>크롤러가 스키마를 추론해 Data Catalog에 테이블을 만들고, 서버리스 Glue ETL 작업이 CSV를 Parquet로 변환합니다. EC2 메타스토어는 서버 관리가 필요하고, Video Streams는 영상용입니다. S3 수명 주기 규칙은 스토리지 클래스 전환과 만료만 할 뿐 파일 형식을 바꾸지 않습니다(0018).</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q6. 회사가 온프레미스 Hadoop 클러스터에서 돌던 Spark 작업 수백 개를 코드 변경을 최소화해 AWS로 옮기려 합니다. 가장 적합한 서비스는?</p>
+  <div class="options">
+    <button class="opt">Amazon Athena SQL</button>
+    <button class="opt">Amazon Quick 대시보드</button>
+    <button class="opt">Amazon EMR on EC2</button>
+    <button class="opt">Lake Formation 권한</button>
+  </div>
+  <div class="feedback"><p>EMR은 Hadoop, Spark 같은 프레임워크를 실행하는 관리형 클러스터 플랫폼이라 기존 작업을 거의 그대로 옮길 수 있습니다. Athena는 SQL 조회, Quick은 시각화, Lake Formation은 권한 관리로 역할이 다릅니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q7. (복습 0006) 프라이빗 서브넷의 EC2 생산자가 Kinesis Data Streams에 데이터를 보냅니다. 보안팀은 트래픽이 인터넷 게이트웨이나 NAT를 거치지 않기를 원합니다. 가장 적합한 방법은?</p>
+  <div class="options">
+    <button class="opt">퍼블릭 서브넷에 둔 NAT 게이트웨이를 경유하게 함</button>
+    <button class="opt">Kinesis용 인터페이스 VPC 엔드포인트를 생성</button>
+    <button class="opt">Kinesis용 게이트웨이 VPC 엔드포인트를 생성</button>
+    <button class="opt">EC2를 퍼블릭 서브넷으로 옮기고 EIP를 연결한다</button>
+  </div>
+  <div class="feedback"><p>Kinesis Data Streams는 PrivateLink 기반 인터페이스 VPC 엔드포인트를 지원하며, 인터넷 게이트웨이나 NAT 없이 AWS 네트워크 안에서 통신합니다. 게이트웨이 엔드포인트는 S3와 DynamoDB 전용이라 함정입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q8. (복습 0002·0008) KDS 스트림이 고객 관리형 KMS 키로 서버 측 암호화되어 있습니다. 다른 계정의 소비자 역할이 이 스트림을 읽어야 합니다. KMS 측면에서 무엇이 필요합니까?</p>
+  <div class="options">
+    <button class="opt">소비자 IAM 정책에 kms:Decrypt만 추가</button>
+    <button class="opt">스트림 계정의 KMS 키 정책에만 그 역할을 넣음</button>
+    <button class="opt">AWS 관리형 키로 바꾸면 권한 설정 없이 공유됨</button>
+    <button class="opt">키 정책과 소비자 계정 IAM 정책이 둘 다 허용</button>
+  </div>
+  <div class="feedback"><p>교차 계정은 양쪽이 모두 허용해야 합니다(0002 규칙 5). KDS 문서도 키 정책과 외부 계정 IAM 정책 양쪽에 권한을 주라고 합니다. 오히려 리소스 정책으로 공유하려면 AWS 관리형 키가 아니라 고객 관리형 키를 써야 합니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) KDS와 Firehose를 구분하는 기준 세 가지. (2) 파이프라인의 다섯 칸(수집·저장·카탈로그/변환·조회·시각화)에 들어가는 서비스, 그리고 권한은 누가 관리하나? (3) Athena 비용을 줄이는 두 가지 방법.</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) KDS: 실시간, 소비자 앱을 직접 작성, 여러 소비자가 독립적으로 읽음, 보관 기간(기본 24시간~최대 365일) 동안 재처리, 온디맨드/프로비저닝 용량. Firehose: 완전 관리형 배달, 코드 없음, 버퍼가 차면 S3·Redshift·OpenSearch 등으로 적재, Lambda 변환과 Parquet/ORC 변환.</p>
+    <p>(2) 수집 Kinesis/Firehose → 저장 S3 → 카탈로그 Glue 크롤러·Data Catalog, 변환 Glue ETL → 조회 Athena(SQL)·EMR(Spark/Hadoop) → 시각화 Amazon Quick(Quick Sight). 권한은 Lake Formation이 열·행·셀 수준까지.</p>
+    <p>(3) Parquet/ORC 같은 컬럼형 형식으로 변환, 날짜 등으로 파티셔닝. 둘 다 스캔하는 데이터를 줄입니다.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/athena/latest/ug/columnar-storage.html">"Use columnar storage formats"</a>와 이어지는 <a href="https://docs.aws.amazon.com/athena/latest/ug/partitions.html">"Partition your data"</a>. 시험의 "Athena 비용 최적화"와 ".csv → .parquet"가 한꺼번에 정리돼 있습니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 거의 무료)</strong>: 작은 CSV 몇 개를 <code>s3://내버킷/logs/dt=2026-11-16/</code>처럼 올리고, Glue 크롤러로 테이블을 만든 뒤 Athena에서 <code>SELECT ... WHERE dt='2026-11-16'</code>을 실행해 보세요. Athena 결과 화면에 표시되는 스캔 데이터 양을 파티션 조건이 있을 때와 없을 때 비교하면 오늘 내용이 손에 잡힙니다. 크롤러와 쿼리는 사용량만큼 과금되니 데이터는 작게 유지하세요.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. 특히 Q1(KDS vs Firehose vs SQS)과 Q7(인터페이스 vs 게이트웨이 엔드포인트)은 자주 헷갈리는 지점이라, 어떤 기준으로 골랐는지 들려주시면 다음 복습에 반영하겠습니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03-domain3.html">AWS Certification, SAA-C03 Content Domain 3: Design High-Performing Architectures</a></li>
+<li><a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">Amazon Kinesis Data Streams, What is Amazon Kinesis Data Streams?</a></li>
+<li><a href="https://docs.aws.amazon.com/streams/latest/dev/kinesis-extended-retention.html">Amazon Kinesis Data Streams, Change the data retention period</a></li>
+<li><a href="https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html">Amazon Data Firehose, What is Amazon Data Firehose?</a></li>
+<li><a href="https://docs.aws.amazon.com/streams/latest/dev/how-do-i-size-a-stream.html">Amazon Kinesis Data Streams, Choose the right mode to stream in</a></li>
+<li><a href="https://docs.aws.amazon.com/firehose/latest/dev/data-transformation.html">Amazon Data Firehose, Transform source data</a></li>
+<li><a href="https://docs.aws.amazon.com/firehose/latest/dev/record-format-conversion.html">Amazon Data Firehose, Convert input data format</a></li>
+<li><a href="https://docs.aws.amazon.com/glue/latest/dg/what-is-glue.html">AWS Glue, What is AWS Glue?</a></li>
+<li><a href="https://docs.aws.amazon.com/glue/latest/dg/add-crawler.html">AWS Glue, Using crawlers to populate the Data Catalog</a></li>
+<li><a href="https://docs.aws.amazon.com/athena/latest/ug/what-is.html">Amazon Athena, What is Amazon Athena?</a></li>
+<li><a href="https://docs.aws.amazon.com/athena/latest/ug/columnar-storage.html">Amazon Athena, Use columnar storage formats</a></li>
+<li><a href="https://docs.aws.amazon.com/athena/latest/ug/partitions.html">Amazon Athena, Partition your data</a></li>
+<li><a href="https://docs.aws.amazon.com/lake-formation/latest/dg/what-is-lake-formation.html">AWS Lake Formation, What is AWS Lake Formation?</a></li>
+<li><a href="https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-what-is-emr.html">Amazon EMR, What is Amazon EMR?</a></li>
+<li><a href="https://docs.aws.amazon.com/quick/latest/userguide/what-is.html">AWS Quick, What is AWS Quick?</a></li>
+<li><a href="https://docs.aws.amazon.com/streams/latest/dev/what-is-sse.html">Amazon Kinesis Data Streams, What is server-side encryption?</a></li>
+<li><a href="https://docs.aws.amazon.com/streams/latest/dev/vpc.html">Amazon Kinesis Data Streams, Use with interface VPC endpoints</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0023-choosing-and-migrating-databases.html">← 0023 목적별 DB 선택과 마이그레이션</a></span>
+  <span><a href="0025-cloudfront-and-global-accelerator.html">다음: 0025 엣지: CloudFront vs Global Accelerator →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

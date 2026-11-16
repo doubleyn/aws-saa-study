@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>리소스 정책과 역할</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0002 · 도메인 1 보안 (30%) · Task 1.1</p>
+<h1>정책이 두 장일 때:<br>리소스 기반 정책, 교차 계정, 역할</h1>
+<p class="lede">0001의 세 규칙에 규칙 세 개를 더합니다. 다 익히면 "다른 계정의 버킷에 접근하려면 무엇을 설정해야 하나?" 유형의 시험 문제를 풀 수 있습니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/iam-policy-evaluation.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>두 번째 종류의 정책</h2>
+<p>0001에서 다룬 <strong>자격 증명 기반 정책</strong>은 사용자·그룹·역할에 붙습니다. 정책을 <em>리소스 쪽</em>에 붙일 수도 있습니다. S3 버킷 정책, SQS 큐 정책, KMS 키 정책이 그런 <strong>리소스 기반 정책</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_identity-vs-resource.html">[1]</a></sup></p>
+<pre><code>// S3 버킷 정책 (버킷 acme-reports에 연결)
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "AWS": "arn:aws:iam::111122223333:user/alice" },
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::acme-reports/*"
+  }]
+}</code></pre>
+<p>새로 나온 요소는 <code>Principal</code>, 즉 <em>누구에게</em> 허용하는지입니다. 리소스 기반 정책에는 Principal이 <strong>필수</strong>이고, 자격 증명 기반 정책에는 <strong>쓸 수 없습니다</strong>. 정책이 붙은 대상이 곧 주체이기 때문입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html">[2]</a></sup></p>
+
+<table>
+<tr><th>Principal에 쓸 수 있는 것</th><th>뜻</th></tr>
+<tr><td><code>arn:aws:iam::111122223333:user/alice</code></td><td>그 사용자 한 명</td></tr>
+<tr><td><code>arn:aws:iam::111122223333:role/Auditor</code></td><td>그 역할</td></tr>
+<tr><td><code>arn:aws:iam::111122223333:root</code> 또는 <code>"111122223333"</code></td><td><strong>계정 전체</strong>에 위임. 루트 사용자만 뜻하는 것이 아니며, 그 계정 관리자가 자기 사용자에게 다시 권한을 줘야 함<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html">[2]</a></sup></td></tr>
+<tr><td><code>"*"</code></td><td>모든 주체. Allow와 함께 쓰면 익명 사용자까지 포함</td></tr>
+</table>
+<p><strong>IAM 그룹은 Principal이 될 수 없습니다.</strong> AWS 설명은 그룹이 "relate to permissions, not authentication"이라는 것입니다. 그룹은 권한 묶음일 뿐 인증 주체가 아닙니다. 그룹 안에 그룹을 넣을 수도 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_groups.html">[3]</a></sup></p>
+
+<h2>새 규칙 세 개</h2>
+<ol class="rules" style="counter-reset: rule 3">
+  <li><strong>같은 계정이면 어느 한쪽만 허용해도 허용(합집합).</strong> 자격 증명 기반 정책이든 리소스 기반 정책이든, 하나가 Allow하면 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html">[4]</a></sup> <br><small>예외: <strong>역할 신뢰 정책</strong>과 <strong>KMS 키 정책</strong>은 반드시 그 정책 자체가 명시적으로 허용해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-denyallow.html">[5]</a></sup></small></li>
+  <li><strong>다른 계정이면 양쪽이 모두 허용해야 허용(교집합).</strong> 요청자 계정의 자격 증명 기반 정책 <em>그리고</em> 리소스 계정의 리소스 기반 정책이 둘 다 Allow해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic-cross-account.html">[6]</a></sup></li>
+  <li><strong>역할을 맡으면 원래 권한은 잠시 내려놓는다.</strong> 역할 사용 중에는 역할이 허용한 것만 할 수 있고, 원래 사용자 권한은 중지됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_common-scenarios_aws-accounts.html">[7]</a></sup></li>
+</ol>
+<p>0001의 규칙 3(<em>일치하는 Deny는 무조건 이긴다</em>)은 여기서도 그대로입니다. 어느 계정의 어느 정책에 있든 명시적 거부가 있으면 거부입니다.</p>
+
+<figure>
+<svg viewBox="0 0 560 170" role="img" aria-label="교차 계정 요청: 계정 A의 자격 증명 기반 정책과 계정 B의 리소스 기반 정책을 둘 다 통과해야 함" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <rect x="10" y="20" width="250" height="130" rx="10" fill="none" stroke="var(--rule)" stroke-dasharray="4 3"/>
+  <text x="22" y="40" font-size="12" fill="var(--muted)">계정 A (444455556666)</text>
+  <rect x="300" y="20" width="250" height="130" rx="10" fill="none" stroke="var(--rule)" stroke-dasharray="4 3"/>
+  <text x="312" y="40" font-size="12" fill="var(--muted)">계정 B (111122223333)</text>
+  <rect x="30" y="65" width="80" height="44" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="70" y="92" text-anchor="middle" font-size="14" fill="var(--fg)">bob</text>
+  <rect x="140" y="58" width="105" height="58" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="192" y="82" text-anchor="middle" font-size="12" fill="var(--fg)">관문 ① 자격 증명</text>
+  <text x="192" y="100" text-anchor="middle" font-size="12" fill="var(--fg)">기반 정책 Allow?</text>
+  <rect x="315" y="58" width="105" height="58" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="367" y="82" text-anchor="middle" font-size="12" fill="var(--fg)">관문 ② 버킷</text>
+  <text x="367" y="100" text-anchor="middle" font-size="12" fill="var(--fg)">정책 Allow?</text>
+  <rect x="450" y="65" width="85" height="44" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="492" y="92" text-anchor="middle" font-size="14" fill="var(--fg)">S3 버킷</text>
+  <line x1="110" y1="87" x2="136" y2="87" stroke="var(--muted)" marker-end="url(#ah2)"/>
+  <line x1="245" y1="87" x2="311" y2="87" stroke="var(--muted)" marker-end="url(#ah2)"/>
+  <line x1="420" y1="87" x2="446" y2="87" stroke="var(--muted)" marker-end="url(#ah2)"/>
+  <text x="280" y="140" text-anchor="middle" font-size="12" fill="var(--muted)">둘 다 통과해야 허용 · 같은 계정이었다면 둘 중 하나만으로 충분</text>
+</svg>
+</figure>
+
+<h2>역할 = 신뢰 정책 + 권한 정책</h2>
+<p><strong>IAM 역할</strong>은 사용자처럼 권한을 가진 자격 증명이지만, 비밀번호나 액세스 키 같은 장기 자격 증명이 없습니다. 역할을 맡으면(<code>sts:AssumeRole</code>) <strong>임시 보안 자격 증명</strong>을 받습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html">[8]</a></sup> 역할에는 정책이 두 장 붙습니다.</p>
+<table>
+<tr><th></th><th>신뢰 정책 (trust policy)</th><th>권한 정책 (permissions policy)</th></tr>
+<tr><td>질문</td><td><strong>누가</strong> 이 역할을 맡을 수 있나?</td><td>맡은 뒤 <strong>무엇을</strong> 할 수 있나?</td></tr>
+<tr><td>종류</td><td>리소스 기반 정책 (Principal 필수)</td><td>자격 증명 기반 정책</td></tr>
+</table>
+<p>그래서 <strong>계정 A의 사용자가 계정 B의 역할을 맡으려면</strong> 규칙 5에 따라 두 관문이 필요합니다. 계정 B 역할의 신뢰 정책 Principal에 계정 A가 있어야 하고, 계정 A에서 그 사용자에게 해당 역할 ARN에 대한 <code>sts:AssumeRole</code> 권한을 줘야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_common-scenarios_aws-accounts.html">[7]</a></sup></p>
+
+<div class="callout">
+<p class="label">시험 단골: EC2 위의 애플리케이션</p>
+<p>EC2에서 도는 앱이 S3를 읽어야 할 때 정답은 거의 항상 <strong>IAM 역할을 인스턴스 프로파일로 연결</strong>하는 것입니다. 인스턴스 프로파일이 역할을 담아 임시 자격 증명을 제공하므로, 인스턴스에 액세스 키를 배포할 필요가 없습니다. 한 인스턴스에는 한 번에 역할 하나만 연결할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2.html">[9]</a></sup> 보기에 "액세스 키를 인스턴스에 저장"이 나오면 오답 후보입니다. IAM 모범 사례 2번이 "워크로드는 IAM 역할의 임시 자격 증명을 사용"하라는 것입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html">[10]</a></sup></p>
+</div>
+
+<h2>연습</h2>
+<p>등장인물: 계정 <code>111122223333</code>(버킷 <code>acme-reports</code> 소유)의 사용자 <code>alice</code>, 그리고 다른 계정 <code>444455556666</code>의 사용자 <code>bob</code>. 기억으로 푸세요.</p>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q1. alice에게는 S3 관련 자격 증명 기반 정책이 <em>하나도 없습니다</em>. alice가 <code>acme-reports/q3.pdf</code>를 GetObject 합니다.</p>
+<pre><code>// acme-reports 버킷 정책
+{ "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::111122223333:user/alice" },
+  "Action": "s3:GetObject",
+  "Resource": "arn:aws:s3:::acme-reports/*" }</code></pre>
+  <div class="options">
+    <button class="opt">허용 · 한쪽 정책만 허용해도 됨</button>
+    <button class="opt">허용 · 양쪽 정책이 모두 허용함</button>
+    <button class="opt">거부 · 양쪽 모두 허용이 필요함</button>
+    <button class="opt">거부 · 명시적 거부가 적용되었음</button>
+  </div>
+  <div class="feedback"><p>alice와 버킷이 <strong>같은 계정</strong>입니다. 규칙 4에 따라 리소스 기반 정책 하나만 허용해도 충분합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q2. bob의 자격 증명 기반 정책은 <code>arn:aws:s3:::acme-reports/*</code>에 대한 <code>s3:GetObject</code>를 허용합니다. 버킷 정책에는 계정 444455556666에 대한 내용이 없습니다. bob이 GetObject 합니다.</p>
+  <div class="options">
+    <button class="opt">허용 · 한쪽 정책만 허용해도 됨</button>
+    <button class="opt">허용 · 양쪽 정책이 모두 허용함</button>
+    <button class="opt">거부 · 양쪽 모두 허용이 필요함</button>
+    <button class="opt">거부 · 명시적 거부가 적용되었음</button>
+  </div>
+  <div class="feedback"><p>bob은 <strong>다른 계정</strong>입니다. 자기 계정에서 아무리 허용해도 리소스 계정의 버킷 정책이 허용하지 않으면 관문 ②에서 막힙니다. 자기 계정 권한만으로 남의 계정 리소스에 들어갈 수 있다면 큰일이겠죠.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q3. 버킷 정책이 아래와 같고, bob의 자격 증명 기반 정책도 <code>acme-reports/*</code>에 대한 <code>s3:GetObject</code>를 허용합니다. bob이 GetObject 합니다.</p>
+<pre><code>{ "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::444455556666:root" },
+  "Action": "s3:GetObject",
+  "Resource": "arn:aws:s3:::acme-reports/*" }</code></pre>
+  <div class="options">
+    <button class="opt">허용 · 한쪽 정책만 허용해도 됨</button>
+    <button class="opt">허용 · 양쪽 정책이 모두 허용함</button>
+    <button class="opt">거부 · 양쪽 모두 허용이 필요함</button>
+    <button class="opt">거부 · 명시적 거부가 적용되었음</button>
+  </div>
+  <div class="feedback"><p><code>:root</code>는 루트 사용자만이 아니라 <strong>계정 444455556666 전체</strong>에 위임한다는 뜻입니다. 그 계정이 bob에게 다시 허용했으니 두 관문을 모두 통과합니다. 실무에서 흔한 교차 계정 공유 패턴입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q4. Q3과 같은 설정인데, bob에게 아래 정책이 하나 더 붙어 있습니다.</p>
+<pre><code>{ "Effect": "Deny", "Action": "s3:*",
+  "Resource": "arn:aws:s3:::acme-reports/*" }</code></pre>
+  <div class="options">
+    <button class="opt">허용 · 한쪽 정책만 허용해도 됨</button>
+    <button class="opt">허용 · 양쪽 정책이 모두 허용함</button>
+    <button class="opt">거부 · 양쪽 모두 허용이 필요함</button>
+    <button class="opt">거부 · 명시적 거부가 적용되었음</button>
+  </div>
+  <div class="feedback"><p>0001 복습입니다. 계정이 몇 개든, Allow가 몇 개든, 일치하는 Deny가 이깁니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q5. alice의 자격 증명 기반 정책은 같은 계정의 역할 <code>role/Auditor</code>에 대한 <code>sts:AssumeRole</code>을 허용합니다. 그런데 Auditor의 신뢰 정책 Principal에는 alice도, 계정 111122223333도 없습니다. alice가 역할을 맡으려 합니다.</p>
+  <div class="options">
+    <button class="opt">허용 · 한쪽 정책만 허용해도 됨</button>
+    <button class="opt">허용 · 양쪽 정책이 모두 허용함</button>
+    <button class="opt">거부 · 양쪽 모두 허용이 필요함</button>
+    <button class="opt">거부 · 명시적 거부가 적용되었음</button>
+  </div>
+  <div class="feedback"><p>함정 문제입니다. 같은 계정이라 규칙 4(합집합)가 떠올랐다면, 그 <strong>예외</strong>를 기억하세요. 역할 신뢰 정책은 반드시 직접 허용해야 합니다. 그래서 같은 계정이어도 양쪽이 모두 필요합니다. Deny 문장은 없으니 "명시적 거부"는 아닙니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q6. (시험형) EC2 인스턴스에서 도는 애플리케이션이 S3 버킷의 객체를 읽어야 합니다. 가장 안전한 방법은?</p>
+  <div class="options">
+    <button class="opt">IAM 사용자 액세스 키를 앱 설정 파일에 저장</button>
+    <button class="opt">S3 읽기 권한의 IAM 역할을 인스턴스에 연결</button>
+    <button class="opt">루트 사용자 액세스 키를 EC2 환경변수에 저장</button>
+    <button class="opt">버킷 정책의 Principal을 "*"로 개방함</button>
+  </div>
+  <div class="feedback"><p>역할은 인스턴스 프로파일을 통해 자동으로 갱신되는 <strong>임시 자격 증명</strong>을 줍니다. 장기 키를 저장하는 보기는 유출 위험이 있고, 루트 키는 절대 쓰면 안 되며, <code>"*"</code> Allow는 익명 사용자까지 엽니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q7. (시험형) 계정 A의 개발자가 계정 B의 역할로 전환(switch role)했습니다. 역할을 쓰는 동안, 원래 계정 A 사용자 정책이 허용하던 작업은?</p>
+  <div class="options">
+    <button class="opt">원래 권한과 역할 권한이 합쳐져 둘 다 가능</button>
+    <button class="opt">원래 사용자 권한이 항상 우선해 그것만 가능</button>
+    <button class="opt">모든 권한이 일시 중지되어 아무 작업도 불가</button>
+    <button class="opt">원래 권한은 중지되고 역할 권한만 사용 가능</button>
+  </div>
+  <div class="feedback"><p>규칙 6입니다. 공식 문서 표현으로는 원래 권한이 "suspended", 즉 중지되었다가 역할을 빠져나오면 되돌아옵니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_common-scenarios_aws-accounts.html">[7]</a></sup></p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q8. S3 버킷 정책의 <code>Principal</code>에 넣을 수 <em>없는</em> 것은?</p>
+  <div class="options">
+    <button class="opt">IAM 사용자 ARN</button>
+    <button class="opt">IAM 역할의 ARN</button>
+    <button class="opt">IAM 그룹의 ARN</button>
+    <button class="opt">AWS 계정의 ARN</button>
+  </div>
+  <div class="feedback"><p>그룹은 권한 묶음일 뿐 인증 주체가 아니라서 Principal이 될 수 없습니다. 팀 전체에 버킷 접근을 주려면 그룹에 자격 증명 기반 정책을 붙이거나(같은 계정), 역할을 만들어 신뢰하게 합니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) 같은 계정과 다른 계정에서 판정 규칙이 어떻게 다른가? (2) 계정 A의 사용자가 계정 B의 역할을 맡으려면 어디에 무엇을 설정해야 하나?</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) 같은 계정은 자격 증명 기반 정책과 리소스 기반 정책 중 <strong>하나만</strong> 허용해도 됩니다. 단, 역할 신뢰 정책과 KMS 키 정책은 예외로 직접 허용해야 합니다. 다른 계정은 <strong>양쪽 모두</strong> 허용해야 합니다. 어느 경우든 명시적 거부가 이깁니다.</p>
+    <p>(2) 계정 B: 역할의 <strong>신뢰 정책</strong> Principal에 계정 A(또는 그 사용자)를 넣습니다. 계정 A: 사용자의 <strong>자격 증명 기반 정책</strong>에서 그 역할 ARN에 대한 <code>sts:AssumeRole</code>을 허용합니다. 맡은 뒤 할 수 있는 일은 역할의 <strong>권한 정책</strong>이 정합니다.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic-cross-account.html">"Cross-account policy evaluation logic"</a>. 오늘 규칙 5를 AWS가 직접 예제로 풀어 놓은 페이지입니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택)</strong>: 계정이 하나뿐이라면, 같은 계정 안에서 역할을 하나 만들어 신뢰 정책에 내 사용자를 넣고 콘솔의 "Switch role"로 전환해 보세요. 권한이 바뀌는 것을 직접 느낄 수 있습니다.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. 특히 Q5(신뢰 정책 예외)와 Q3(<code>:root</code>의 의미)는 처음 보면 헷갈리기 쉬운 지점이라, 어떻게 생각했는지 들으면 다음 레슨을 맞추는 데 도움이 됩니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_identity-vs-resource.html">AWS IAM, Identity-based policies and resource-based policies</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html">AWS IAM, Principal element</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_groups.html">AWS IAM, IAM user groups</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html">AWS IAM, Policy evaluation logic</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-denyallow.html">AWS IAM, Determining whether a request is allowed or denied within an account</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic-cross-account.html">AWS IAM, Cross-account policy evaluation logic</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_common-scenarios_aws-accounts.html">AWS IAM, Access for an IAM user in another AWS account that you own</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html">AWS IAM, IAM roles</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2.html">AWS IAM, Use an IAM role to grant permissions to applications running on Amazon EC2 instances</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html">AWS IAM, Security best practices</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0001-iam-policy-evaluation.html">← 0001 IAM 정책 평가</a></span>
+  <span><a href="0003-organizations-scp-boundaries.html">다음: 0003 다중 계정과 권한 가드레일 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

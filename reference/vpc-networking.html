@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPC 네트워킹</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">레퍼런스 · VPC</p>
+<h1>VPC 네트워킹 치트시트</h1>
+<p class="lede">서브넷, 라우팅, 방화벽, NAT, 엔드포인트, VPC 간·하이브리드 연결을 한 장에. 레슨 0004~0007.</p>
+
+<h2>VPC · 서브넷 · 라우팅 (0004)</h2>
+<ul>
+  <li>VPC·서브넷 IPv4 CIDR: <code>/16</code>~<code>/28</code>. RFC 1918 대역 권장. 기존 CIDR 크기 변경 불가 → <strong>보조 CIDR 추가</strong>.</li>
+  <li>서브넷은 <strong>AZ 하나</strong>에만. 고가용성 = 2개 이상 AZ에 서브넷.</li>
+  <li>서브넷마다 <strong>5개 주소 예약</strong> (네트워크, +1 라우터, +2 DNS, +3 예약, 브로드캐스트). <code>/24</code> → 251개.</li>
+  <li>라우팅: 가장 긴 접두사 일치. 모든 테이블에 <code>local</code> 라우트. 명시적으로 연결 안 된 서브넷은 <strong>기본 라우팅 테이블</strong>을 따름.</li>
+</ul>
+<table>
+<tr><th>서브넷</th><th>정의 (라우팅 테이블이 결정)</th></tr>
+<tr><td>퍼블릭</td><td>IGW로 가는 직접 라우트 있음</td></tr>
+<tr><td>프라이빗</td><td>IGW 라우트 없음 (나가려면 NAT)</td></tr>
+<tr><td>VPN 전용</td><td>VGW를 통한 VPN 라우트, IGW 라우트 없음</td></tr>
+<tr><td>격리</td><td>VPC 밖 라우트 없음</td></tr>
+</table>
+<p><strong>인터넷 통신 3조건</strong>: IGW 연결 + <code>0.0.0.0/0</code> → IGW 라우트 + 퍼블릭 IPv4/탄력적 IP. (그리고 SG·NACL 허용.) IGW는 무료·고가용, 대역폭 제약 없음.</p>
+
+<h2>보안 그룹 vs NACL (0005)</h2>
+<table>
+<tr><th></th><th>보안 그룹</th><th>NACL</th></tr>
+<tr><td>수준</td><td>인스턴스</td><td>서브넷</td></tr>
+<tr><td>규칙</td><td>허용만</td><td>허용 + 거부</td></tr>
+<tr><td>평가</td><td>모든 규칙</td><td>번호 오름차순, 첫 일치로 끝</td></tr>
+<tr><td>응답</td><td>자동 허용 (상태 저장)</td><td>명시 허용 필요 (상태 비저장)</td></tr>
+<tr><td>기본값</td><td>새 SG: 인바운드 없음, 아웃바운드 전체 허용</td><td>기본 NACL: 전체 허용. 모든 NACL에 <code>*</code> 거부 규칙</td></tr>
+</table>
+<ul>
+  <li>특정 IP 차단 → NACL 거부 규칙(허용보다 <strong>낮은 번호</strong>).</li>
+  <li>SG 참조: 소스에 다른 SG ID → 그 SG 인스턴스의 사설 IP 허용 (ALB SG → 웹 SG → DB SG).</li>
+  <li>임시 포트: Linux 32768–61000, Windows 2008+ 49152–65535, ELB·NAT GW·Lambda 1024–65535. 실무는 <strong>1024–65535</strong>. 서버면 NACL 아웃바운드, 클라이언트면 NACL 인바운드.</li>
+</ul>
+
+<h2>NAT (0006)</h2>
+<table>
+<tr><th></th><th>NAT 게이트웨이</th><th>NAT 인스턴스</th></tr>
+<tr><td>위치</td><td>퍼블릭 서브넷 + 탄력적 IP (퍼블릭 NAT)</td><td>퍼블릭 서브넷 + 퍼블릭 IP, <strong>소스/대상 확인 끄기</strong></td></tr>
+<tr><td>가용성</td><td>AZ 안에서 이중화 → <strong>AZ마다 하나</strong></td><td>스크립트로 장애 조치</td></tr>
+<tr><td>대역폭</td><td>5 → 100 Gbps 자동</td><td>인스턴스 유형</td></tr>
+<tr><td>보안 그룹</td><td>불가 (NACL·뒤쪽 SG로)</td><td>가능</td></tr>
+<tr><td>요금</td><td>시간 + 처리 GB</td><td>인스턴스 요금</td></tr>
+</table>
+<p>단일 NAT 공유 = 저렴하지만 그 AZ 장애 시 전 AZ 인터넷 상실, AZ 간 전송 요금. 리전 NAT 게이트웨이(자동 다중 AZ)도 있음.</p>
+
+<h2>VPC 엔드포인트 (0006)</h2>
+<table>
+<tr><th></th><th>게이트웨이 엔드포인트</th><th>인터페이스 엔드포인트 (PrivateLink)</th></tr>
+<tr><td>대상</td><td><strong>S3, DynamoDB만</strong></td><td>다수 AWS 서비스, 엔드포인트 서비스</td></tr>
+<tr><td>동작</td><td>라우팅 테이블에 접두사 목록 라우트</td><td>서브넷의 ENI + 사설 IP + (프라이빗) DNS</td></tr>
+<tr><td>온프레미스·다른 리전</td><td>불가</td><td>가능 (VPN·DX·피어링·TGW)</td></tr>
+<tr><td>요금</td><td><strong>무료</strong></td><td>AZ별 시간 + GB</td></tr>
+</table>
+<p>내 서비스를 다른 계정 VPC에 사설 제공(CIDR 겹쳐도) → <strong>엔드포인트 서비스</strong>(로드 밸런서) + 소비자 인터페이스 엔드포인트.</p>
+
+<h2>VPC 간·하이브리드 연결 (0007)</h2>
+<table>
+<tr><th></th><th>VPC 피어링</th><th>Transit Gateway</th></tr>
+<tr><td>구조</td><td>1:1, 계정·리전 간 가능</td><td>허브 앤 스포크 (VPC, VPN, DX 게이트웨이, TGW 피어링)</td></tr>
+<tr><td>전이 라우팅</td><td><strong>불가</strong> + 엣지 투 엣지 불가 (상대 IGW·NAT·VPN·DX·게이트웨이 엔드포인트 못 씀)</td><td>가능</td></tr>
+<tr><td>CIDR 겹침</td><td>불가</td><td>비겹침 권장</td></tr>
+<tr><td>요금</td><td>생성 무료, AZ·리전 간 전송</td><td>연결당 시간 + 처리 GB</td></tr>
+</table>
+<table>
+<tr><th></th><th>Site-to-Site VPN</th><th>Direct Connect</th></tr>
+<tr><td>경로</td><td>인터넷 위 IPsec, 터널 2개</td><td>전용 광회선 (ISP 우회)</td></tr>
+<tr><td>암호화</td><td>기본</td><td><strong>기본 없음</strong> → DX 위 VPN, 또는 MACsec(10·100 Gbps 전용)</td></tr>
+<tr><td>대역폭</td><td>터널당 1.25 Gbps (TGW·Cloud WAN 대역폭 큰 터널 5 Gbps)</td><td>전용 1·10·100 Gbps, 호스팅 50 Mbps–10 Gbps</td></tr>
+<tr><td>AWS 쪽 끝</td><td>VGW(VPC 1개) 또는 TGW</td><td>프라이빗 VIF(VPC), 퍼블릭 VIF(퍼블릭 서비스), 전송 VIF(TGW)</td></tr>
+<tr><td>키워드</td><td>빠르게, 저렴, 암호화, DX 백업</td><td>일관된 성능, 대용량</td></tr>
+</table>
+<ul>
+  <li>DX 백업: 저렴 → VPN (DX가 있으면 항상 DX 우선). 최대 복원력 → 다른 로케이션의 두 번째 DX.</li>
+  <li>DX 하나로 여러 리전·계정 VPC → <strong>Direct Connect 게이트웨이</strong>.</li>
+</ul>
+
+<p class="muted" style="font-size:.85rem">출처: <a href="https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html">서브넷</a> · <a href="https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html">서브넷 CIDR</a> · <a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">인터넷 게이트웨이</a> · <a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">SG vs NACL</a> · <a href="https://docs.aws.amazon.com/vpc/latest/userguide/custom-network-acl.html">임시 포트</a> · <a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-comparison.html">NAT 비교</a> · <a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html">NAT 게이트웨이</a> · <a href="https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html">게이트웨이 엔드포인트</a> · <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/privatelink-interface-endpoints.html">S3 엔드포인트 비교</a> · <a href="https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-basics.html">피어링 제약</a> · <a href="https://docs.aws.amazon.com/vpc/latest/tgw/what-is-transit-gateway.html">Transit Gateway</a> · <a href="https://docs.aws.amazon.com/vpn/latest/s2svpn/VPC_VPN.html">Site-to-Site VPN</a> · <a href="https://docs.aws.amazon.com/whitepapers/latest/aws-vpc-connectivity-options/aws-direct-connect.html">Direct Connect</a> · 레슨 <a href="../lessons/0004-vpc-subnets-routing.html">0004</a>, <a href="../lessons/0005-security-groups-vs-nacls.html">0005</a>, <a href="../lessons/0006-nat-and-vpc-endpoints.html">0006</a>, <a href="../lessons/0007-hybrid-and-vpc-connectivity.html">0007</a></p>
+</main>
+</body>
+</html>

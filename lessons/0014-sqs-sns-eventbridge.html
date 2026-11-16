@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQS, SNS, EventBridge</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0014 · 도메인 2 복원력 (26%) · Task 2.1</p>
+<h1>느슨한 결합:<br>SQS, SNS, EventBridge, 팬아웃</h1>
+<p class="lede">구성 요소끼리 직접 호출하면 한쪽이 느려지거나 죽을 때 다른 쪽도 같이 넘어집니다. 사이에 큐나 주제를 두면 각자 자기 속도로 일합니다. 오늘은 "큐냐, 주제냐, 이벤트 버스냐"와 SQS의 네 가지 설정값을 고르는 법을 익힙니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/decoupling-and-resilience.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>왜 이것부터인가</h2>
+<ul>
+  <li><strong>시험에서</strong>: "트래픽 급증 시 주문이 유실된다", "같은 이벤트를 여러 시스템이 처리해야 한다"는 Task 2.1의 단골 지문이고, 정답은 거의 항상 SQS·SNS 조합입니다.</li>
+  <li><strong>실무에서</strong>: 큐 하나로 웹 계층과 백엔드 처리 계층을 떼어 놓으면, 각자 따로 확장하고 따로 장애를 견딥니다.</li>
+</ul>
+
+<h2>세 서비스, 세 가지 모양</h2>
+<table>
+<tr><th></th><th>SQS (큐)</th><th>SNS (주제)</th><th>EventBridge (이벤트 버스)</th></tr>
+<tr><td>전달 방식</td><td>소비자가 <strong>폴링</strong>해서 가져감</td><td>구독자에게 <strong>푸시</strong><sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html">[9]</a></sup></td><td>규칙이 이벤트를 <strong>패턴 매칭</strong>해 대상으로 라우팅<sup class="cite"><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-bus.html">[13]</a></sup></td></tr>
+<tr><td>한 메시지를 받는 쪽</td><td>보통 소비자 <strong>하나</strong>가 처리 후 삭제</td><td>구독자 <strong>전원</strong>이 사본을 받음<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/welcome.html">[8]</a></sup></td><td>일치하는 규칙마다, 규칙당 대상 최대 5개<sup class="cite"><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-bus.html">[13]</a></sup></td></tr>
+<tr><td>메시지 보관</td><td>기본 4일, 최대 14일<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html">[7]</a></sup></td><td>보관하지 않고 바로 전달 (보관하려면 SQS를 구독)</td><td>—</td></tr>
+<tr><td>대표 용도</td><td>작업 버퍼링, 비동기 처리</td><td>팬아웃, 알림(이메일·SMS·모바일 푸시)</td><td>AWS 서비스 이벤트·SaaS 이벤트 라우팅</td></tr>
+</table>
+<p>SNS 구독자 엔드포인트는 SQS, Lambda, HTTP(S), 이메일, 모바일 푸시, SMS, Amazon Data Firehose 등입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/welcome.html">[8]</a></sup> 기본적으로 구독자는 주제의 모든 메시지를 받고, 일부만 받으려면 구독에 <strong>필터 정책</strong>을 붙입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-message-filtering.html">[10]</a></sup></p>
+
+<h2>SQS: 표준 vs FIFO</h2>
+<table>
+<tr><th></th><th>표준 큐</th><th>FIFO 큐</th></tr>
+<tr><td>처리량</td><td>사실상 무제한</td><td>배치 없이 API 메서드당 초당 300건, 배치(10개) 시 초당 3,000메시지. 높은 처리량 모드로 더 확장<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-queue-types.html">[1]</a></sup></td></tr>
+<tr><td>전달</td><td><strong>최소 한 번</strong>. 가끔 중복 가능 → 소비자를 <strong>멱등</strong>하게</td><td><strong>정확히 한 번 처리</strong>. 5분 중복 제거 간격 안의 재전송은 중복으로 들어가지 않음<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-exactly-once-processing.html">[6]</a></sup></td></tr>
+<tr><td>순서</td><td>최선 노력(보장 안 함)</td><td><strong>메시지 그룹 ID 안에서</strong> 순서 보장. 그룹을 여러 개로 나누면 병렬 처리<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-queue-types.html">[1]</a></sup></td></tr>
+</table>
+<p>FIFO 큐에는 <code>MessageGroupId</code>가 필수입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html">[7]</a></sup> "고객별 주문 순서 보장"이면 고객 ID를 그룹 ID로 쓰는 식입니다.</p>
+
+<h2>SQS 설정값 네 가지</h2>
+<table>
+<tr><th>설정</th><th>하는 일</th><th>숫자와 함정</th></tr>
+<tr><td><strong>가시성 제한 시간</strong></td><td>소비자가 받은 메시지를 잠시 다른 소비자에게 숨김. 그 안에 삭제하지 않으면 다시 보임<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html">[2]</a></sup></td><td>기본 30초, 최대 12시간. 처리 시간보다 짧으면 <strong>중복 처리</strong>. Lambda 소비자는 함수 제한 시간의 6배 이상 권장<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-configure.html">[16]</a></sup></td></tr>
+<tr><td><strong>배달 못한 편지 큐(DLQ)</strong></td><td><code>maxReceiveCount</code>번 받고도 삭제되지 않은 메시지를 따로 격리<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html">[3]</a></sup></td><td>원본 큐와 <strong>같은 계정·리전</strong>, <strong>같은 유형</strong>(FIFO↔FIFO)<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-configure-dead-letter-queue.html">[4]</a></sup>. 표준 큐의 DLQ 보존 기간은 원본보다 길게(원래 큐잉 시각 기준으로 만료)<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html">[3]</a></sup></td></tr>
+<tr><td><strong>긴 폴링</strong></td><td>메시지가 올 때까지 기다렸다가 응답. 빈 응답과 비용을 줄임</td><td><code>WaitTimeSeconds</code> &gt; 0이면 긴 폴링, 최대 20초. 기본은 짧은 폴링<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-short-and-long-polling.html">[5]</a></sup></td></tr>
+<tr><td><strong>메시지 보존 · 지연</strong></td><td>얼마나 보관할지, 얼마나 늦게 보이게 할지</td><td>보존 기본 4일·최대 14일, 지연 최대 15분<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html">[7]</a></sup></td></tr>
+</table>
+
+<h2>팬아웃: SNS → 여러 SQS</h2>
+<p>SNS 주제에 게시된 메시지가 복제되어 구독한 여러 엔드포인트로 푸시되는 것을 <strong>팬아웃</strong>이라 합니다. 주문 이벤트 하나를 처리용 큐와 분석용 큐가 각각 받는 것이 AWS 문서의 대표 예입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/welcome.html">[8]</a></sup> SQS를 끼우면 즉시 알림을 받으면서 메시지가 큐에 남아 나중에 처리할 수도 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html">[9]</a></sup></p>
+
+<figure>
+<svg viewBox="0 0 600 220" role="img" aria-label="생산자가 SNS 주제에 한 번 게시하면 세 SQS 큐가 각각 사본을 받고, 각 큐의 소비자가 자기 속도로 처리하며, 실패한 메시지는 DLQ로 이동" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <rect x="10" y="88" width="90" height="44" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="55" y="115" text-anchor="middle" font-size="13" fill="var(--fg)">주문 서비스</text>
+  <rect x="140" y="80" width="100" height="60" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="190" y="106" text-anchor="middle" font-size="13" fill="var(--fg)">SNS 주제</text>
+  <text x="190" y="124" text-anchor="middle" font-size="11" fill="var(--muted)">게시 1번</text>
+  <line x1="100" y1="110" x2="136" y2="110" stroke="var(--muted)" marker-end="url(#ah14)"/>
+  <g font-size="12" fill="var(--fg)">
+    <rect x="290" y="20" width="110" height="36" rx="6" fill="none" stroke="var(--fg)"/><text x="345" y="43" text-anchor="middle">SQS 결제 큐</text>
+    <rect x="290" y="92" width="110" height="36" rx="6" fill="none" stroke="var(--fg)"/><text x="345" y="115" text-anchor="middle">SQS 재고 큐</text>
+    <rect x="290" y="164" width="110" height="36" rx="6" fill="none" stroke="var(--fg)"/><text x="345" y="187" text-anchor="middle">SQS 분석 큐</text>
+    <rect x="450" y="20" width="90" height="36" rx="6" fill="none" stroke="var(--rule)"/><text x="495" y="43" text-anchor="middle">소비자 A</text>
+    <rect x="450" y="92" width="90" height="36" rx="6" fill="none" stroke="var(--rule)"/><text x="495" y="115" text-anchor="middle">소비자 B</text>
+    <rect x="450" y="164" width="90" height="36" rx="6" fill="none" stroke="var(--rule)"/><text x="495" y="187" text-anchor="middle">소비자 C</text>
+  </g>
+  <line x1="240" y1="100" x2="286" y2="40" stroke="var(--muted)" marker-end="url(#ah14)"/>
+  <line x1="240" y1="110" x2="286" y2="110" stroke="var(--muted)" marker-end="url(#ah14)"/>
+  <line x1="240" y1="120" x2="286" y2="180" stroke="var(--muted)" marker-end="url(#ah14)"/>
+  <line x1="400" y1="38" x2="446" y2="38" stroke="var(--muted)" marker-end="url(#ah14)"/>
+  <line x1="400" y1="110" x2="446" y2="110" stroke="var(--muted)" marker-end="url(#ah14)"/>
+  <line x1="400" y1="182" x2="446" y2="182" stroke="var(--muted)" marker-end="url(#ah14)"/>
+  <rect x="545" y="92" width="50" height="36" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/>
+  <text x="570" y="115" text-anchor="middle" font-size="12" fill="var(--fg)">DLQ</text>
+  <text x="300" y="215" text-anchor="middle" font-size="11" fill="var(--muted)">큐마다 독립 소비 · 독립 확장 · 반복 실패는 DLQ로 격리</text>
+</svg>
+</figure>
+
+<p>설정 함정 두 가지. 첫째, SNS가 큐에 넣으려면 <strong>큐 정책</strong>(리소스 기반 정책)이 <code>sns.amazonaws.com</code>에게 <code>sqs:SendMessage</code>를 허용해야 하고, <code>aws:SourceArn</code>으로 주제를 한정하는 것이 권장됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/subscribe-sqs-queue-to-sns-topic.html">[11]</a></sup> 둘째, 순서와 중복 제거가 필요하면 <strong>SNS FIFO 주제 + SQS FIFO 큐</strong>입니다. SNS FIFO 주제는 이메일·SMS·HTTP(S) 같은 엔드포인트로는 보낼 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/fifo-message-delivery.html">[12]</a></sup></p>
+
+<h2>EventBridge: 규칙으로 라우팅</h2>
+<p>EventBridge 이벤트 버스는 이벤트를 받아 0개 이상의 대상으로 전달하는 라우터입니다. 소스는 AWS 서비스, 직접 만든 애플리케이션, SaaS 파트너입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-what-is.html">[14]</a></sup> 모든 계정의 <strong>기본 이벤트 버스</strong>는 AWS 서비스 이벤트(예: EC2 상태 변경)를 자동으로 받고, 규칙의 <strong>이벤트 패턴</strong>(JSON)과 일치하면 대상(예: Lambda)으로 보냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-bus.html">[13]</a></sup> Zendesk, Datadog 같은 SaaS의 이벤트는 <strong>파트너 이벤트 소스</strong>를 이벤트 버스에 연결해 받습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-saas.html">[15]</a></sup> 일정 기반 실행은 <strong>EventBridge Scheduler</strong>(cron·rate 식)가 맡습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-what-is.html">[14]</a></sup></p>
+
+<h2>큐로 급증을 흡수하고, 큐 깊이로 확장</h2>
+<p>쓰기 요청을 SQS에 버퍼링하면 기본 DB가 잠시 불가해도 고객 요청을 계속 받을 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_mitigate_interaction_failure_graceful_degradation.html">[17]</a></sup> 소비자 Auto Scaling 그룹은 큐 길이 자체가 아니라 <strong>인스턴스당 백로그</strong>(<code>ApproximateNumberOfMessages</code> ÷ InService 인스턴스 수)를 지표로, <strong>허용 가능한 인스턴스당 백로그</strong>(허용 지연 ÷ 메시지당 평균 처리 시간)를 목표값으로 하는 <strong>대상 추적</strong> 정책을 씁니다. 메시지 수만 보면 인스턴스 수를 고려하지 못해 과하게 늘어날 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-using-sqs-queue.html">[18]</a></sup> 예: 인스턴스 10대, 메시지 1,500개, 허용 지연 10초, 처리 0.1초 → 목표 100, 현재 150이므로 확장.</p>
+<p>Lambda를 소비자로 쓰면 Lambda가 큐를 폴링해 배치로 함수를 호출하고, 성공하면 메시지를 삭제합니다. 실패한 배치는 가시성 제한 시간이 지나면 다시 보이므로 함수는 멱등해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html">[19]</a></sup></p>
+
+<div class="callout">
+<p class="label">시험 단골</p>
+<ul>
+  <li>"순서 보장", "중복 불가" → <strong>SQS FIFO</strong> (+ 그룹 ID). "처리량 최대", "순서 무관" → <strong>표준</strong></li>
+  <li>"같은 메시지가 두 번 처리됨" → <strong>가시성 제한 시간</strong>을 처리 시간보다 길게</li>
+  <li>"계속 실패하는 메시지가 큐를 막음" → <strong>DLQ + maxReceiveCount</strong></li>
+  <li>"빈 응답이 많고 비용이 큼" → <strong>긴 폴링</strong> (최대 20초)</li>
+  <li>"하나의 이벤트를 여러 시스템이 각자 처리" → <strong>SNS 팬아웃 → 시스템별 SQS 큐</strong></li>
+  <li>"트래픽 급증 시 유실", "백엔드가 못 따라감" → <strong>SQS로 버퍼링</strong>, 소비자는 <strong>인스턴스당 백로그</strong>로 확장</li>
+  <li>"AWS 서비스 이벤트·SaaS 이벤트에 반응", "일정 실행" → <strong>EventBridge</strong></li>
+</ul>
+</div>
+
+<h2>연습</h2>
+<p>기억으로 푸세요.</p>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 주문 시스템에서 같은 고객의 주문 변경은 반드시 보낸 순서대로, 중복 없이 처리돼야 합니다. 서로 다른 고객의 주문은 병렬로 처리해도 됩니다. 가장 적합한 설계는?</p>
+  <div class="options">
+    <button class="opt">SQS 표준 큐를 쓰고 소비자 인스턴스 수를 늘린다</button>
+    <button class="opt">SNS 표준 주제로 각 소비자에게 바로 푸시해 준다</button>
+    <button class="opt">SQS FIFO 큐에 고객 ID를 그룹 ID로 쓴다</button>
+    <button class="opt">EventBridge 규칙으로 Lambda를 호출함</button>
+  </div>
+  <div class="feedback"><p>FIFO 큐는 <strong>메시지 그룹 안에서</strong> 순서를 보장하고 정확히 한 번 처리합니다. 고객 ID를 그룹으로 쓰면 고객별 순서는 지키면서 고객 간에는 병렬 처리됩니다. 표준 큐는 순서가 최선 노력이고 중복이 생길 수 있어 "소비자 수를 늘린다"가 해결책이 되지 못합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. EC2 소비자가 SQS 표준 큐에서 받은 메시지 하나를 처리하는 데 약 2분이 걸립니다. 큐는 기본 설정 그대로이며, 같은 주문이 두 번씩 처리되는 일이 잦습니다. 가장 먼저 바꿀 것은?</p>
+  <div class="options">
+    <button class="opt">가시성 제한 시간을 처리 시간보다 길게 늘림</button>
+    <button class="opt">메시지 보존 기간을 기본값에서 14일로 늘림</button>
+    <button class="opt">긴 폴링을 켜고 대기 시간을 20초로 설정함</button>
+    <button class="opt">전송 지연을 걸어 메시지를 최대 15분 늦춤</button>
+  </div>
+  <div class="feedback"><p>기본 가시성 제한 시간은 30초입니다. 2분 처리 중 30초가 지나면 메시지가 다시 보여 다른 소비자가 또 가져갑니다. 긴 폴링은 빈 응답을 줄이는 기능이라 중복 처리와는 무관합니다. (표준 큐는 원래 드물게 중복이 있으므로 소비자를 멱등하게 만드는 것도 함께 권장됩니다.)</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q3. 형식이 잘못된 일부 메시지가 매번 처리에 실패해 큐로 되돌아오며 소비자 자원을 계속 잡아먹습니다. 정상 메시지 처리는 이어가면서 실패 메시지를 나중에 분석하고 싶습니다. 가장 적합한 방법은?</p>
+  <div class="options">
+    <button class="opt">가시성 제한 시간을 최대값 12시간으로 늘려 둔다</button>
+    <button class="opt">큐를 FIFO로 바꾸고 중복 제거 기능을 활성화함</button>
+    <button class="opt">메시지 보존 기간을 1분으로 줄여 빨리 만료시킨다</button>
+    <button class="opt">DLQ를 연결해 maxReceiveCount 설정</button>
+  </div>
+  <div class="feedback"><p>DLQ는 <code>maxReceiveCount</code>번 받고도 삭제되지 않은 메시지를 격리해 분석할 수 있게 합니다. 보존 기간을 줄이면 정상 메시지까지 사라지고, 분석할 기회도 없습니다. 가시성 제한 시간을 12시간으로 하면 실패 메시지가 재시도까지 오래 숨을 뿐 해결되지 않습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. 소비자가 1초마다 ReceiveMessage를 호출하는데 대부분 빈 응답이 돌아오고, SQS 요청 비용이 예상보다 큽니다. 지연 시간을 크게 늘리지 않고 비용을 줄이려면?</p>
+  <div class="options">
+    <button class="opt">가시성 제한 시간을 0초로 설정해 바로 보이게</button>
+    <button class="opt">긴 폴링 켬 WaitTimeSeconds=20</button>
+    <button class="opt">FIFO 큐로 바꾸고 배치 크기 10으로 설정</button>
+    <button class="opt">SNS 주제를 앞에 두어 메시지를 푸시로 받음</button>
+  </div>
+  <div class="feedback"><p>긴 폴링은 메시지가 올 때까지(최대 20초) 기다렸다가 응답하므로 빈 응답과 거짓 빈 응답이 줄어 비용이 내려가고, 메시지가 오면 바로 반환합니다. SNS를 앞에 두어도 SQS 소비자는 여전히 폴링해야 합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,2">
+  <p class="q-title">Q5. 주문이 생성될 때마다 결제, 재고, 분석 세 시스템이 같은 주문 이벤트를 <em>각자</em> 받아 자기 속도로 처리해야 합니다. 한 시스템이 잠시 멈춰도 그 시스템의 이벤트는 유실되면 안 됩니다. 어떤 조합이 맞습니까? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">주문 서비스가 SNS 주제에 이벤트를 게시함</button>
+    <button class="opt">세 시스템이 SQS 큐 하나를 함께 폴링하게</button>
+    <button class="opt">시스템마다 SQS 큐를 만들어 주제를 구독함</button>
+    <button class="opt">FIFO 큐 높은 처리량 모드를 켜서 분배함</button>
+  </div>
+  <div class="feedback"><p>SNS 팬아웃입니다. 주제는 구독자 전원에게 사본을 보내고, 각 SQS 큐가 메시지를 보관하므로 한 시스템이 멈춰도 자기 큐에 쌓였다가 나중에 처리됩니다. 큐 하나를 함께 폴링하면 메시지 하나를 <strong>한 소비자만</strong> 처리하고 삭제하므로 세 시스템이 모두 받지 못합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q6. 웹 계층이 주문을 RDS에 직접 씁니다. 프로모션 때 쓰기가 몰리면 DB가 포화되어 주문이 유실됩니다. 주문은 몇 분 늦게 처리돼도 괜찮습니다. 가장 적합한 설계는?</p>
+  <div class="options">
+    <button class="opt">웹 계층 최대 용량을 두 배로 늘려서 대응함</button>
+    <button class="opt">SNS 주제로 주문을 받아서 RDS로 푸시함</button>
+    <button class="opt">웹 계층에 CPU 기반의 확장 정책을 추가함</button>
+    <button class="opt">SQS에 버퍼링, 작업자는 큐 백로그로 확장</button>
+  </div>
+  <div class="feedback"><p>큐가 급증을 흡수하고, 작업자는 DB가 감당할 속도로 씁니다. 작업자 Auto Scaling 그룹은 <strong>인스턴스당 백로그</strong>를 목표로 대상 추적하면 쌓인 일에 비례해 확장됩니다. 웹 계층을 늘리면 DB에 쓰기가 더 몰려 문제가 커집니다. SNS는 메시지를 보관하지 않아 버퍼가 되지 못합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q7. 보안팀이 SaaS 헬프데스크(EventBridge 파트너)의 티켓 이벤트 중 "긴급" 티켓만 골라 Lambda와 Step Functions로 보내고 싶습니다. 코드를 최소화하는 방법은?</p>
+  <div class="options">
+    <button class="opt">SaaS 웹훅을 받는 EC2 서버를 만들어 분기함</button>
+    <button class="opt">파트너 이벤트 소스를 이벤트 버스에 연결 후 규칙</button>
+    <button class="opt">SNS 주제에 이메일 구독을 두고 필터 정책을 씀</button>
+    <button class="opt">SQS 큐에 넣고 Lambda 코드로 분기 처리함</button>
+  </div>
+  <div class="feedback"><p>EventBridge는 SaaS 파트너 이벤트를 파트너 이벤트 소스로 받고, 규칙의 이벤트 패턴으로 "긴급"만 골라 여러 대상(규칙당 최대 5개)에 보냅니다. EC2 웹훅 서버나 Lambda 분기 코드는 같은 일을 직접 구현하는 것이라 운영 부담이 큽니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q8. (0002 복습) SQS 큐를 SNS 주제에 구독시켰는데, 게시한 메시지가 큐에 들어오지 않습니다. 같은 계정이며, 구독은 확인된 상태입니다. 가장 가능성 높은 원인과 해결은?</p>
+  <div class="options">
+    <button class="opt">게시자 IAM 정책에 sqs:SendMessage 추가</button>
+    <button class="opt">SNS 주제 정책의 Principal에 큐 ARN 추가</button>
+    <button class="opt">큐 정책에서 SNS에 sqs:SendMessage 허용</button>
+    <button class="opt">큐를 FIFO로 전환하고 콘텐츠 기반 중복 제거를 켠다</button>
+  </div>
+  <div class="feedback"><p>큐에 메시지를 넣는 주체는 게시자가 아니라 <strong>SNS 서비스</strong>입니다. 그래서 큐의 <strong>리소스 기반 정책</strong>이 Principal <code>sns.amazonaws.com</code>에게 <code>sqs:SendMessage</code>를 허용해야 하고, <code>aws:SourceArn</code>으로 주제를 한정합니다. 게시자 IAM 정책은 <code>sns:Publish</code>만 있으면 됩니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) SQS 표준과 FIFO의 차이 세 가지(처리량·전달·순서). (2) 가시성 제한 시간, DLQ, 긴 폴링이 각각 해결하는 증상. (3) SQS·SNS·EventBridge를 한 줄씩 구분.</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) 표준: 사실상 무제한 처리량, 최소 한 번 전달(중복 가능 → 멱등), 최선 노력 순서. FIFO: 배치 없이 초당 300건(배치 시 3,000메시지, 높은 처리량 모드로 확장), 정확히 한 번 처리(5분 중복 제거), 메시지 그룹 안에서 순서 보장.</p>
+    <p>(2) 가시성 제한 시간(기본 30초, 최대 12시간): 같은 메시지 중복 처리. DLQ(maxReceiveCount, 같은 유형·계정·리전): 반복 실패하는 메시지 격리. 긴 폴링(최대 20초): 빈 응답과 비용.</p>
+    <p>(3) SQS: 소비자가 폴링하는 버퍼, 메시지당 소비자 하나. SNS: 구독자 전원에게 푸시하는 팬아웃. EventBridge: 이벤트 패턴 규칙으로 AWS·SaaS·커스텀 이벤트를 대상에 라우팅.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-queue-types.html">"Amazon SQS queue types"</a>와 같은 가이드의 visibility timeout 페이지. 오늘 표 두 개의 원본입니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 프리 티어 범위)</strong>: SNS 주제 하나와 SQS 큐 두 개를 만들고, SQS 콘솔에서 큐를 주제에 구독시키세요(콘솔이 큐 정책을 자동으로 추가해 줍니다). 주제에 메시지를 게시한 뒤 두 큐에서 각각 "Poll for messages"로 같은 메시지가 들어온 것을 확인합니다. 끝나면 주제와 큐를 삭제하세요.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q5(큐 하나 공유 vs 큐 여러 개)와 Q8(누가 큐에 넣는가)은 처음에 헷갈리기 쉬운 지점입니다. EventBridge와 SNS 중 무엇을 고를지 애매한 시나리오가 있으면 그것도 가져오세요.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-queue-types.html">Amazon SQS, Queue types</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html">Amazon SQS, Visibility timeout</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html">Amazon SQS, Using dead-letter queues</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-configure-dead-letter-queue.html">Amazon SQS, Configure a dead-letter queue</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-short-and-long-polling.html">Amazon SQS, Short and long polling</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-exactly-once-processing.html">Amazon SQS, Exactly-once processing</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html">Amazon SQS, Message quotas</a></li>
+<li><a href="https://docs.aws.amazon.com/sns/latest/dg/welcome.html">Amazon SNS, What is Amazon SNS?</a></li>
+<li><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html">Amazon SNS, Fanout to Amazon SQS queues</a></li>
+<li><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-message-filtering.html">Amazon SNS, Message filtering</a></li>
+<li><a href="https://docs.aws.amazon.com/sns/latest/dg/subscribe-sqs-queue-to-sns-topic.html">Amazon SNS, Subscribing an Amazon SQS queue to an Amazon SNS topic</a></li>
+<li><a href="https://docs.aws.amazon.com/sns/latest/dg/fifo-message-delivery.html">Amazon SNS, Message delivery for FIFO topics</a></li>
+<li><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-bus.html">Amazon EventBridge, Event bus</a></li>
+<li><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-what-is.html">Amazon EventBridge, What is Amazon EventBridge?</a></li>
+<li><a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-saas.html">Amazon EventBridge, Receiving events from a SaaS partner</a></li>
+<li><a href="https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-configure.html">AWS Lambda, Creating and configuring an Amazon SQS event source mapping</a></li>
+<li><a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_mitigate_interaction_failure_graceful_degradation.html">AWS Well-Architected Reliability Pillar, REL05-BP01 Graceful degradation</a></li>
+<li><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-using-sqs-queue.html">Amazon EC2 Auto Scaling, Scaling policy based on Amazon SQS</a></li>
+<li><a href="https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html">AWS Lambda, Using Lambda with Amazon SQS</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0013-lambda-and-containers.html">← 0013 서버리스와 컨테이너</a></span>
+  <span><a href="0015-api-gateway-step-functions.html">다음: 0015 API Gateway, Step Functions, 캐싱 전략 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

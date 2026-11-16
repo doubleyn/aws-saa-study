@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>하이브리드 스토리지와 데이터 전송</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0020 · 도메인 3 고성능 (24%) · Task 3.1, 4.1</p>
+<h1>온프레미스와 AWS 잇기:<br>Storage Gateway, DataSync, Transfer Family, 오프라인 전송</h1>
+<p class="lede">하이브리드 문제는 "계속 같이 쓰는가, 한 번 옮기는가, 외부인이 파일을 보내는가"로 갈립니다. 계속 쓰면 Storage Gateway, 옮기면 DataSync(온라인) 또는 물리 전송(오프라인), 외부 SFTP면 Transfer Family. 마지막에 대역폭 계산으로 온라인과 오프라인을 가르는 법을 익힙니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/storage.html">스토리지 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>왜 이것부터인가</h2>
+<p><strong>시험에서</strong>: "온프레미스 앱이 NFS로 S3를 쓰게", "테이프를 없애고", "100TB를 일주일 안에" 같은 문장이 나오면 이 레슨의 서비스 중 하나가 정답입니다.<br>
+<strong>실무에서</strong>: 마이그레이션 계획의 첫 질문이 "회선으로 며칠 걸리나?"입니다. 계산을 못 하면 일정이 통째로 틀어집니다.</p>
+
+<h2>Storage Gateway: 온프레미스에서 계속 쓰는 클라우드 스토리지</h2>
+<p>Storage Gateway는 온프레미스 소프트웨어 어플라이언스와 클라우드 스토리지를 잇는 서비스입니다. 게이트웨이는 VMware ESXi·Hyper-V·KVM·Nutanix AHV의 VM, 하드웨어 어플라이언스, 또는 EC2 인스턴스로 배포합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/storagegateway/latest/vgw/WhatIsStorageGateway.html">[1]</a></sup></p>
+<table>
+<tr><th>유형</th><th>온프레미스가 보는 것</th><th>데이터가 사는 곳</th><th>결정적 키워드</th></tr>
+<tr><td><strong>S3 File Gateway</strong></td><td>NFS(v3, v4.1) · SMB(v2, v3) 파일 공유</td><td>S3 객체(파일 하나 = 객체 하나로 접근)</td><td>온프레미스 앱이 파일 프로토콜로 S3 사용, 로컬 캐시로 저지연. S3 수명 주기·CRR·버전 관리를 그대로 활용<sup class="cite"><a href="https://docs.aws.amazon.com/filegateway/latest/files3/what-is-file-s3.html">[2]</a></sup></td></tr>
+<tr><td><strong>FSx File Gateway</strong></td><td>SMB 공유</td><td>FSx for Windows File Server</td><td><strong>신규 고객에게는 더 이상 제공되지 않음</strong>(기존 고객은 계속 사용)<sup class="cite"><a href="https://docs.aws.amazon.com/filegateway/latest/filefsxw/what-is-file-fsxw.html">[3]</a></sup></td></tr>
+<tr><td><strong>Volume Gateway</strong></td><td>iSCSI 블록 볼륨</td><td>캐시형: S3에 저장, 자주 쓰는 부분만 로컬 / 저장형: 전부 로컬, 시점 스냅숏을 S3로 비동기 백업</td><td>온프레미스 서버의 블록 스토리지를 클라우드로 확장·백업, 백업을 EC2로 복구<sup class="cite"><a href="https://docs.aws.amazon.com/storagegateway/latest/vgw/WhatIsStorageGateway.html">[1]</a></sup></td></tr>
+<tr><td><strong>Tape Gateway</strong></td><td>가상 테이프 라이브러리</td><td>S3 Glacier Flexible Retrieval 또는 Deep Archive로 아카이브</td><td>물리 테이프 인프라 제거, 기존 백업 소프트웨어 유지<sup class="cite"><a href="https://docs.aws.amazon.com/storagegateway/latest/tgw/WhatIsStorageGateway.html">[4]</a></sup></td></tr>
+</table>
+<p><strong>캐시형 vs 저장형 Volume Gateway</strong>는 시험이 즐겨 묻는 구분입니다. "온프레미스 스토리지 확장을 최소화하면서 자주 쓰는 데이터는 빠르게"면 <strong>캐시형</strong>, "전체 데이터셋에 저지연 접근이 필요하고 클라우드는 오프사이트 백업용"이면 <strong>저장형</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/storagegateway/latest/vgw/WhatIsStorageGateway.html">[1]</a></sup></p>
+
+<h2>DataSync: 온라인으로 옮기고 동기화하기</h2>
+<ul>
+  <li>온프레미스 <strong>NFS · SMB · HDFS · 객체 스토리지</strong>에서 <strong>S3 · EFS · FSx 네 종류</strong>로(또는 반대로) 파일·객체를 전송합니다. 다른 클라우드 스토리지(예: Google Cloud Storage, Azure Blob)에서도 가져올 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/datasync/latest/userguide/what-is-datasync.html">[5]</a></sup></li>
+  <li>온프레미스에서는 <strong>에이전트</strong>(VM 어플라이언스)를 배포해 스토리지를 읽고 씁니다. 같은 계정의 AWS 스토리지 서비스끼리 옮길 때는 에이전트가 필요 없고 데이터가 AWS 네트워크 안에 머뭅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/datasync/latest/userguide/how-datasync-transfer-works.html">[6]</a></sup></li>
+  <li>전송 중 TLS 암호화, <strong>무결성 검증</strong>을 항상 수행합니다. 일정 실행, <strong>바뀐 데이터만</strong> 전송, 대역폭 제한 옵션이 있어 반복 동기화에도 씁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/datasync/latest/userguide/how-datasync-transfer-works.html">[6]</a></sup></li>
+  <li>용도: 활성 데이터셋 마이그레이션, 콜드 데이터를 S3 Glacier Flexible Retrieval·Deep Archive로 바로 아카이브, EFS·FSx 대기 파일 시스템으로 복제.<sup class="cite"><a href="https://docs.aws.amazon.com/datasync/latest/userguide/what-is-datasync.html">[5]</a></sup></li>
+</ul>
+<p><strong>Storage Gateway와 DataSync 구별</strong>: Storage Gateway는 온프레미스 앱이 <em>계속</em> 클라우드 스토리지를 쓰게 하는 연결이고, DataSync는 데이터를 <em>옮기는</em>(일회성 또는 주기적) 전송 서비스입니다. AWS 가이드도 DataSync를 온라인 마이그레이션 도구로, File Gateway를 하이브리드 저장 도구로 분류합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html#choose">[7]</a></sup></p>
+
+<h2>Transfer Family: 외부 파트너의 SFTP를 그대로</h2>
+<p>AWS Transfer Family는 <strong>SFTP · FTPS · FTP · AS2</strong>와 웹 브라우저 전송을 완전 관리형으로 제공하고, 데이터를 <strong>S3 또는 EFS</strong>에 바로 저장합니다. 서버 인프라를 운영할 필요가 없고, 고객·파트너의 기존 클라이언트 설정(인증, 방화벽 등)을 바꾸지 않아도 됩니다. 호스트 이름을 서버 엔드포인트에 연결해 쓰며, 최대 3개 AZ에 걸친 이중화 구성입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/transfer/latest/userguide/what-is-aws-transfer-family.html">[8]</a></sup></p>
+
+<h2>온라인이냐 오프라인이냐</h2>
+<p>AWS 가이드의 기준은 두 가지입니다. <strong>속도</strong>: 온라인은 분·시간 단위, 오프라인은 일 단위. 자주 바뀌고 시간이 중요한 데이터는 온라인. <strong>대역폭</strong>: 온라인 전송은 업무용 대역폭을 잠식하므로, 네트워크 제약이 있고 전송 중 데이터가 정지해 있어도 되면 오프라인.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html#migration_options">[7]</a></sup></p>
+
+<h3>대역폭 계산 (외워 둘 것은 하나뿐)</h3>
+<p>1 Gbps = 초당 125MB입니다. 하루는 86,400초이므로 회선을 100% 쓴다고 해도 <strong>1 Gbps ≈ 하루 약 10.8TB</strong>입니다. 여기에 실제 사용 가능 비율을 곱합니다.</p>
+<table>
+<tr><th>데이터</th><th>100 Mbps (≈1.08TB/일)</th><th>1 Gbps (≈10.8TB/일)</th><th>10 Gbps (≈108TB/일)</th></tr>
+<tr><td>10TB</td><td>약 9일</td><td>약 1일</td><td>약 2시간</td></tr>
+<tr><td>100TB</td><td>약 93일</td><td>약 9일</td><td>약 1일</td></tr>
+<tr><td>1PB</td><td>약 2.5년</td><td>약 93일</td><td>약 9일</td></tr>
+</table>
+<p><small>회선 100% 사용을 가정한 단순 계산입니다. 실제로는 업무 트래픽 때문에 더 오래 걸립니다.</small></p>
+
+<figure>
+<svg viewBox="0 0 560 200" role="img" aria-label="데이터 이동 서비스 선택: 계속 사용하면 Storage Gateway, 외부 SFTP면 Transfer Family, 옮기는 경우 회선으로 기한 내 가능하면 DataSync, 불가능하면 오프라인 물리 전송" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah20" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <rect x="190" y="8" width="180" height="32" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="280" y="29" text-anchor="middle" font-size="12" fill="var(--fg)">데이터를 어떻게 쓰나?</text>
+  <rect x="10" y="66" width="160" height="40" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="90" y="83" text-anchor="middle" font-size="11" fill="var(--fg)">온프레미스에서 계속 사용</text>
+  <text x="90" y="99" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">Storage Gateway</text>
+  <rect x="200" y="66" width="160" height="40" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="280" y="83" text-anchor="middle" font-size="11" fill="var(--fg)">외부가 SFTP·FTPS·AS2로 전송</text>
+  <text x="280" y="99" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">Transfer Family</text>
+  <rect x="390" y="66" width="160" height="40" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="470" y="83" text-anchor="middle" font-size="11" fill="var(--fg)">AWS로 옮김 (일회·주기)</text>
+  <text x="470" y="99" text-anchor="middle" font-size="11" fill="var(--fg)">회선으로 기한 내 가능?</text>
+  <line x1="240" y1="40" x2="110" y2="64" stroke="var(--muted)" marker-end="url(#ah20)"/>
+  <line x1="280" y1="40" x2="280" y2="64" stroke="var(--muted)" marker-end="url(#ah20)"/>
+  <line x1="320" y1="40" x2="450" y2="64" stroke="var(--muted)" marker-end="url(#ah20)"/>
+  <rect x="330" y="140" width="105" height="40" rx="6" fill="var(--ok-soft)" stroke="var(--ok)"/>
+  <text x="382" y="157" text-anchor="middle" font-size="11" fill="var(--fg)">예</text>
+  <text x="382" y="173" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">DataSync</text>
+  <rect x="445" y="140" width="110" height="40" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/>
+  <text x="500" y="157" text-anchor="middle" font-size="11" fill="var(--fg)">아니오</text>
+  <text x="500" y="173" text-anchor="middle" font-size="11" font-weight="700" fill="var(--fg)">오프라인 물리 전송</text>
+  <line x1="450" y1="106" x2="395" y2="138" stroke="var(--muted)" marker-end="url(#ah20)"/>
+  <line x1="490" y1="106" x2="500" y2="138" stroke="var(--muted)" marker-end="url(#ah20)"/>
+  <text x="10" y="150" font-size="11" fill="var(--muted)">S3에 파일로 → S3 File Gateway</text>
+  <text x="10" y="166" font-size="11" fill="var(--muted)">iSCSI 블록 → Volume Gateway</text>
+  <text x="10" y="182" font-size="11" fill="var(--muted)">테이프 대체 → Tape Gateway</text>
+</svg>
+</figure>
+
+<h3>오프라인 전송: Snow Family의 현재 상태</h3>
+<p>시험 문제와 많은 학습 자료에서 "대역폭이 부족한 대용량 일회성 이전"의 정답은 <strong>AWS Snowball Edge</strong>(물리 장치를 배송받아 데이터를 담고 돌려보내는 방식)입니다. 하지만 2026년 11월 현재 AWS 공식 문서 기준 상태는 다음과 같습니다.</p>
+<ul>
+  <li><strong>Snowball Edge는 신규 고객에게 더 이상 제공되지 않습니다.</strong> 신규 고객에게는 온라인 전송은 DataSync, 물리 전송은 AWS Data Transfer Terminal 또는 파트너 솔루션, 엣지 컴퓨팅은 AWS Outposts를 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/snowball/latest/developer-guide/whatisedge.html">[9]</a></sup></li>
+  <li>AWS는 상용 리전에서 2026년 12월 31일에 Snowball 장치 지원을 종료합니다(활성 작업이 있는 GovCloud(US) 고객은 영향 없음).<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html#use">[7]</a></sup></li>
+  <li>문서상 Snowball Edge는 Storage Optimized 210TB와 Compute Optimized 구성이 있고, 암호화가 강제되며, 최대 100Gbit/s 네트워크 어댑터를 갖췄습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/snowball/latest/developer-guide/whatisedge.html">[9]</a></sup></li>
+  <li><strong>AWS Data Transfer Terminal</strong>: 예약한 물리 시설에 자기 저장 장치를 가져가 고속 연결로 S3·EFS 등에 업로드합니다. 현재는 Enterprise Support 고객만 쓸 수 있고, AWS가 새 오프라인 이전의 권장 경로로 안내합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/datatransferterminal/latest/userguide/what-is-dtt.html">[10]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html#use">[7]</a></sup></li>
+</ul>
+<p><strong>시험 전략</strong>: SAA-C03 문제 은행은 서비스 변경보다 늦게 갱신될 수 있습니다. 보기에 Snowball이 있고 "대역폭 부족 + 대용량 + 기한"이 주어지면 오프라인 물리 전송을 묻는 것으로 읽고 고르세요. 실무 설계에서는 위의 현재 대안을 쓰면 됩니다.</p>
+
+<div class="callout">
+<p class="label">시험 단골: 키워드 → 답</p>
+<p><strong>온프레미스 앱이 NFS/SMB로 S3 사용, 로컬 캐시</strong> → S3 File Gateway · <strong>iSCSI, 자주 쓰는 데이터만 로컬</strong> → Volume Gateway 캐시형 · <strong>전체 로컬 + 클라우드 백업</strong> → Volume Gateway 저장형 · <strong>테이프·VTL·기존 백업 소프트웨어</strong> → Tape Gateway.</p>
+<p><strong>NFS/SMB/HDFS를 S3·EFS·FSx로 이전, 자동화·검증·일정</strong> → DataSync · <strong>파트너가 SFTP로 파일 전송, 서버 관리 없이</strong> → Transfer Family · <strong>회선으로 기한 내 불가능</strong> → 오프라인 물리 전송(시험 보기에서는 Snowball) · <strong>지속적·저지연 전용 회선</strong> → Direct Connect(0007).</p>
+</div>
+
+<h2>연습</h2>
+<p>기억으로 푸세요. 먼저 "계속 쓰나 / 옮기나 / 외부 전송인가"를 정하고, 옮긴다면 대역폭 계산부터 하세요.</p>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q1. 온프레미스 분석 서버들이 NFS로 파일을 쓰는데, 저장 용량이 부족합니다. 파일을 S3에 객체로 저장해 수명 주기 정책을 적용하고 싶고, 최근 파일은 로컬에서 빠르게 읽어야 합니다.</p>
+  <div class="options">
+    <button class="opt">Volume Gateway의 저장형 볼륨</button>
+    <button class="opt">Tape Gateway 가상 테이프 구성</button>
+    <button class="opt">DataSync의 일회성 전송 작업 실행</button>
+    <button class="opt">S3 File Gateway의 파일 공유</button>
+  </div>
+  <div class="feedback"><p>NFS + S3 객체 + 로컬 캐시 = S3 File Gateway입니다. 저장된 파일은 S3 객체라 수명 주기·버전 관리를 그대로 씁니다. Volume Gateway는 iSCSI 블록이라 파일이 객체로 보이지 않고, DataSync는 옮기는 도구라 온프레미스 앱이 계속 쓰는 공유를 제공하지 않습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. 회사가 물리 테이프 라이브러리와 외부 보관 업체를 없애려 합니다. 기존 백업 소프트웨어와 작업 절차는 바꾸고 싶지 않고, 백업은 장기간 가장 저렴하게 보관해야 합니다.</p>
+  <div class="options">
+    <button class="opt">Tape Gateway의 가상 테이프 라이브러리</button>
+    <button class="opt">S3 File Gateway의 SMB 파일 공유</button>
+    <button class="opt">Volume Gateway의 캐시형 볼륨을 구성</button>
+    <button class="opt">Transfer Family SFTP 서버 구성</button>
+  </div>
+  <div class="feedback"><p>Tape Gateway는 기존 백업 소프트웨어가 보는 가상 테이프 인프라를 제공하고, 테이프를 S3 Glacier Flexible Retrieval이나 Deep Archive에 아카이브합니다. File Gateway로도 백업 파일은 올릴 수 있지만 "테이프 절차를 바꾸지 않는다"는 요구를 만족하지 못합니다. Volume Gateway는 iSCSI 블록 볼륨이고, Transfer Family는 외부 파일 전송용입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q3. 온프레미스 NAS(NFS)의 40TB를 Amazon EFS로 옮깁니다. 10 Gbps Direct Connect가 있고, 이전 후 검증과 컷오버 직전까지의 증분 동기화를 자동화하고 싶습니다. 운영 부담이 가장 적은 방법은?</p>
+  <div class="options">
+    <button class="opt">rsync 스크립트를 EC2에서 cron으로 실행</button>
+    <button class="opt">S3 File Gateway를 거쳐 EFS로 복사</button>
+    <button class="opt">DataSync 에이전트와 예약된 전송 작업 사용</button>
+    <button class="opt">오프라인 물리 저장 장치로 보낸 뒤 EFS에 복사</button>
+  </div>
+  <div class="feedback"><p>10 Gbps면 40TB는 하루 안팎이라 온라인이 맞습니다. DataSync는 NFS → EFS를 직접 지원하고, 무결성 검증·바뀐 데이터만 전송·일정 실행이 내장되어 있습니다. rsync는 직접 운영해야 하고, File Gateway는 경로가 S3를 돌아가며, 물리 전송은 이 회선이면 오히려 느립니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. 200개 협력사가 매일 SFTP로 주문 파일을 보내고 있습니다. 협력사 쪽 설정은 바꾸지 않고, 회사는 SFTP 서버를 직접 운영하지 않으면서 파일을 S3에 받고 싶습니다.</p>
+  <div class="options">
+    <button class="opt">EC2에 SFTP 서버를 Auto Scaling으로 구성</button>
+    <button class="opt">Transfer Family SFTP 엔드포인트 + S3</button>
+    <button class="opt">각 협력사에 S3 File Gateway를 하나씩 배포함</button>
+    <button class="opt">DataSync로 각 협력사 서버에서 S3로 매일 동기화</button>
+  </div>
+  <div class="feedback"><p>SFTP 유지 + 서버 운영 없음 + S3 저장 = Transfer Family입니다. 기존 클라이언트 설정을 그대로 두고 호스트 이름만 엔드포인트에 연결합니다. EC2 SFTP는 직접 운영이고, File Gateway·DataSync는 협력사 측에 설치가 필요해 "협력사 설정 불변" 요구를 어깁니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q5. 지방 연구소의 500TB 관측 데이터를 3주 안에 S3로 옮겨야 합니다. 인터넷 회선은 100 Mbps이고 업무에도 써야 합니다. 가장 적절한 방식은?</p>
+  <div class="options">
+    <button class="opt">DataSync로 회선 전체를 사용해서 전송</button>
+    <button class="opt">Transfer Acceleration 사용</button>
+    <button class="opt">S3 File Gateway를 설치 후 복사</button>
+    <button class="opt">물리 저장 장치를 배송받아 오프라인으로 전송</button>
+  </div>
+  <div class="feedback"><p>100 Mbps는 하루 약 1.08TB이므로, 회선을 100% 써도 500TB는 460일이 넘게 걸립니다. 어떤 온라인 서비스도 회선 속도를 넘지 못합니다(Transfer Acceleration은 경로를 최적화할 뿐 대역폭을 늘리지 않음). 기한과 대역폭 제약이 있는 대용량 일회성 이전은 오프라인 물리 전송입니다. 시험 보기에서는 Snowball로 나타나고, 현재 신규 고객은 Data Transfer Terminal이나 파트너 솔루션을 씁니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,3">
+  <p class="q-title">Q6. Volume Gateway 구성에 대해 옳은 것은? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">캐시형은 S3가 기본, 자주 쓰는 것만 로컬에 캐시한다</button>
+    <button class="opt">캐시형은 전체 데이터를 로컬에 두고 S3는 쓰지 않는다</button>
+    <button class="opt">저장형은 NFS 공유로 S3 객체를 파일처럼 보여 준다</button>
+    <button class="opt">저장형은 전부 로컬에 두고 스냅숏을 S3로 비동기 백업</button>
+  </div>
+  <div class="feedback"><p>캐시형은 기본 저장소가 S3이고 자주 쓰는 부분만 로컬에 캐시해 온프레미스 스토리지 확장을 줄입니다. 저장형은 전체 데이터셋을 로컬에 두어 저지연으로 접근하고, 시점 스냅숏을 S3로 비동기 백업합니다. Volume Gateway는 두 구성 모두 iSCSI 블록이며, NFS로 S3 객체를 보여 주는 것은 S3 File Gateway입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q7. (0018 복습) 온프레미스의 오래된 프로젝트 파일을 DataSync로 S3에 아카이브합니다. 감사 때만 열고 1년에 한 번도 안 열 수 있으며, 요청 후 48시간 안에만 꺼내면 됩니다. DataSync 대상 스토리지 클래스로 가장 저렴한 것은?</p>
+  <div class="options">
+    <button class="opt">S3 Standard-IA 스토리지 클래스</button>
+    <button class="opt">S3 Glacier Deep Archive</button>
+    <button class="opt">Intelligent-Tiering 클래스</button>
+    <button class="opt">S3 One Zone-IA 스토리지 클래스</button>
+  </div>
+  <div class="feedback"><p>DataSync는 콜드 데이터를 Glacier Flexible Retrieval·Deep Archive로 바로 보낼 수 있습니다. 연 1회 미만 접근 + 48시간 허용이면 Deep Archive(Bulk 48시간 이내)가 가장 쌉니다. Standard-IA와 One Zone-IA는 월 1회 접근을 위한 밀리초 클래스라 이 요구에는 비싸고(One Zone-IA는 단일 AZ이기도 함), Intelligent-Tiering은 접근 패턴을 모를 때의 선택이지 "거의 안 연다"가 확실한 데이터의 최저가 답이 아닙니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q8. (0007·0019 복습) 온프레미스 Linux 서버들이 클라우드 버스팅을 위해 Amazon EFS 파일 시스템을 직접 마운트하려 합니다. 무엇이 필요합니까?</p>
+  <div class="options">
+    <button class="opt">EFS에 퍼블릭 엔드포인트를 만들어 인터넷 노출</button>
+    <button class="opt">온프레미스에 FSx File Gateway 배포</button>
+    <button class="opt">Direct Connect나 VPN으로 연결한다</button>
+    <button class="opt">EFS를 One Zone 파일 시스템으로 재생성</button>
+  </div>
+  <div class="feedback"><p>EFS는 VPC 안의 마운트 타깃으로 접근하므로, 온프레미스 서버는 Direct Connect나 Site-to-Site VPN으로 VPC에 연결된 뒤 NFS(포트 2049)로 마운트합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/how-it-works.html">[11]</a></sup> 마운트 타깃은 VPC 안의 서브넷에 만들어지므로 "인터넷에 노출"은 설계 방향이 다릅니다. FSx File Gateway는 FSx for Windows용이고 신규 고객에게 더 이상 제공되지 않으며, One Zone 여부는 온프레미스 접근과 관계없습니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) Storage Gateway 네 유형의 프로토콜과 데이터 위치. (2) Storage Gateway, DataSync, Transfer Family를 한 문장씩으로 구별. (3) 100 Mbps와 1 Gbps 회선의 하루 전송량, 그리고 100TB를 1 Gbps로 옮기는 데 걸리는 대략적인 일수.</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) S3 File Gateway: NFS·SMB → S3 객체(로컬 캐시). FSx File Gateway: SMB → FSx for Windows(신규 고객 불가). Volume Gateway: iSCSI → 캐시형은 S3 기본+로컬 캐시, 저장형은 로컬 기본+S3 스냅숏. Tape Gateway: 가상 테이프 → Glacier Flexible Retrieval·Deep Archive.</p>
+    <p>(2) Storage Gateway는 온프레미스가 클라우드 스토리지를 계속 쓰게 하는 연결, DataSync는 NFS·SMB·HDFS·객체 데이터를 AWS 스토리지로 옮기고 동기화하는 전송 서비스, Transfer Family는 SFTP·FTPS·FTP·AS2로 S3·EFS에 파일을 주고받는 관리형 서버.</p>
+    <p>(3) 100 Mbps ≈ 1.08TB/일, 1 Gbps ≈ 10.8TB/일(100% 사용 가정). 100TB ÷ 10.8TB ≈ 9~10일.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">"Choosing an AWS storage service"</a>의 Migration options와 Choose 표. 온라인·오프라인 판단 기준과 Snow Family의 현재 상태가 한 페이지에 있습니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>, 다만 한국어판은 갱신이 늦을 수 있으니 날짜를 확인하세요)</p>
+<p><strong>실습 (선택, 과금 주의)</strong>: DataSync 콘솔에서 S3 버킷 두 개 사이의 전송 작업을 만들어 보세요. 같은 계정 AWS 서비스 간 전송이라 에이전트가 필요 없습니다. 작은 파일 몇 개만 옮기고, DataSync는 전송한 데이터 양에 따라 과금되므로 끝나면 작업과 버킷을 정리하세요.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q5의 계산을 어떻게 했는지, 그리고 Snow Family 상태 변화가 시험 대비에 어떤 의미인지 헷갈리면 바로 물어보세요. 다음은 데이터베이스 유닛(0021)입니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/storagegateway/latest/vgw/WhatIsStorageGateway.html">AWS Storage Gateway, What is Volume Gateway?</a></li>
+<li><a href="https://docs.aws.amazon.com/filegateway/latest/files3/what-is-file-s3.html">AWS Storage Gateway, What is Amazon S3 File Gateway</a></li>
+<li><a href="https://docs.aws.amazon.com/filegateway/latest/filefsxw/what-is-file-fsxw.html">AWS Storage Gateway, What is Amazon FSx File Gateway</a></li>
+<li><a href="https://docs.aws.amazon.com/storagegateway/latest/tgw/WhatIsStorageGateway.html">AWS Storage Gateway, What is Tape Gateway?</a></li>
+<li><a href="https://docs.aws.amazon.com/datasync/latest/userguide/what-is-datasync.html">AWS DataSync, What is AWS DataSync?</a></li>
+<li><a href="https://docs.aws.amazon.com/datasync/latest/userguide/how-datasync-transfer-works.html">AWS DataSync, How AWS DataSync works</a></li>
+<li><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">AWS Decision Guide, Choosing an AWS storage service</a></li>
+<li><a href="https://docs.aws.amazon.com/transfer/latest/userguide/what-is-aws-transfer-family.html">AWS Transfer Family, What is AWS Transfer Family?</a></li>
+<li><a href="https://docs.aws.amazon.com/snowball/latest/developer-guide/whatisedge.html">AWS Snowball Edge Developer Guide, What is Snowball Edge?</a></li>
+<li><a href="https://docs.aws.amazon.com/datatransferterminal/latest/userguide/what-is-dtt.html">AWS Data Transfer Terminal, What is Data Transfer Terminal?</a></li>
+<li><a href="https://docs.aws.amazon.com/efs/latest/ug/how-it-works.html">Amazon EFS, How Amazon EFS works (온프레미스 마운트, Q8 해설)</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0019-ebs-efs-fsx.html">← 0019 블록/파일/객체: EBS, EFS, FSx</a></span>
+  <span><a href="0021-rds-and-aurora.html">다음: 0021 RDS·Aurora →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

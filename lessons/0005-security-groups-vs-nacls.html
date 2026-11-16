@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>보안 그룹과 네트워크 ACL</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0005 · 도메인 1 보안 (30%) · Task 1.2</p>
+<h1>보안 그룹 vs 네트워크 ACL</h1>
+<p class="lede">둘 다 "방화벽"이지만 성격이 정반대입니다. 상태 저장 대 상태 비저장, 허용만 대 허용·거부, 인스턴스 대 서브넷. 이 세 쌍을 표로 외우고, 응답 트래픽이 어떻게 돌아오는지만 이해하면 됩니다.</p>
+<div class="meta"><span>⏱ 약 18분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/vpc-networking.html">VPC 치트시트</a></span></div>
+
+<h2>왜 이것인가</h2>
+<p><strong>시험에서</strong>: "특정 IP 대역을 차단하라"(NACL), "웹 서버에서 오는 트래픽만 DB에 허용하라"(보안 그룹 참조)는 거의 매회 나오는 유형입니다.<br>
+<strong>실무에서</strong>: 연결이 안 될 때 원인의 상당수가 NACL의 응답 포트 누락입니다. 상태 비저장이 무엇을 뜻하는지 알면 디버깅 시간이 줄어듭니다.</p>
+
+<h2>한 장으로 비교</h2>
+<table>
+<tr><th>특성</th><th>보안 그룹 (SG)</th><th>네트워크 ACL (NACL)</th></tr>
+<tr><td>동작 수준</td><td><strong>인스턴스</strong> 수준</td><td><strong>서브넷</strong> 수준</td></tr>
+<tr><td>적용 범위</td><td>그 SG에 연결된 인스턴스</td><td>연결된 서브넷의 모든 인스턴스</td></tr>
+<tr><td>규칙 종류</td><td><strong>허용만</strong></td><td><strong>허용과 거부</strong></td></tr>
+<tr><td>규칙 평가</td><td><strong>모든 규칙</strong>을 보고 결정</td><td><strong>번호 오름차순</strong>, 처음 일치한 규칙 적용</td></tr>
+<tr><td>응답 트래픽</td><td>자동 허용 (<strong>상태 저장</strong>)</td><td>명시적으로 허용해야 함 (<strong>상태 비저장</strong>)</td></tr>
+</table>
+<p class="muted" style="font-size:.9rem">출처: VPC 사용 설명서의 비교표<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[1]</a></sup></p>
+<p>AWS는 보안 그룹을 <strong>주된</strong> 네트워크 접근 제어 수단으로 쓰고, NACL은 특정 트래픽을 거부하는 보조 수단이나 서브넷 단위 가드레일로 쓰라고 권합니다. NACL은 서브넷 전체에 적용되므로, 누군가 SG를 잘못 붙여 인스턴스를 띄워도 막아 주는 심층 방어가 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[1]</a></sup></p>
+
+<figure>
+<svg viewBox="0 0 560 180" role="img" aria-label="인터넷에서 온 패킷이 IGW, 라우팅 테이블, 서브넷 경계의 NACL, 인스턴스의 보안 그룹을 차례로 통과" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <rect x="10" y="60" width="80" height="44" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="50" y="87" text-anchor="middle" font-size="13" fill="var(--fg)">인터넷</text>
+  <rect x="120" y="60" width="70" height="44" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="155" y="87" text-anchor="middle" font-size="13" fill="var(--fg)">IGW</text>
+  <rect x="220" y="20" width="330" height="140" rx="10" fill="none" stroke="var(--fg)" stroke-dasharray="4 3"/>
+  <text x="232" y="38" font-size="11" fill="var(--muted)">서브넷</text>
+  <rect x="235" y="50" width="12" height="64" fill="var(--bad-soft)" stroke="var(--bad)"/>
+  <text x="241" y="134" text-anchor="middle" font-size="11" fill="var(--bad)">NACL</text>
+  <text x="241" y="148" text-anchor="middle" font-size="10" fill="var(--muted)">상태 비저장</text>
+  <rect x="330" y="45" width="190" height="74" rx="8" fill="none" stroke="var(--ok)" stroke-width="2"/>
+  <text x="425" y="40" text-anchor="middle" font-size="11" fill="var(--ok)">보안 그룹 · 상태 저장</text>
+  <rect x="370" y="62" width="110" height="40" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="425" y="87" text-anchor="middle" font-size="13" fill="var(--fg)">EC2</text>
+  <line x1="90" y1="82" x2="116" y2="82" stroke="var(--muted)" marker-end="url(#ah5)"/>
+  <line x1="190" y1="82" x2="231" y2="82" stroke="var(--muted)" marker-end="url(#ah5)"/>
+  <line x1="247" y1="82" x2="326" y2="82" stroke="var(--muted)" marker-end="url(#ah5)"/>
+  <text x="290" y="74" text-anchor="middle" font-size="10" fill="var(--muted)">①</text>
+  <text x="350" y="140" text-anchor="middle" font-size="11" fill="var(--muted)">들어올 때 ① NACL 인바운드 → ② SG 인바운드</text>
+  <text x="350" y="155" text-anchor="middle" font-size="11" fill="var(--muted)">응답이 나갈 때 SG는 자동 통과, NACL은 아웃바운드 규칙 필요</text>
+</svg>
+</figure>
+
+<h2>보안 그룹의 세부</h2>
+<ul>
+  <li><strong>허용 규칙만</strong> 만들 수 있고 거부 규칙은 없습니다. 새로 만든 SG에는 인바운드 규칙이 없고(아무것도 못 들어옴), 모든 아웃바운드를 허용하는 규칙이 하나 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html">[2]</a></sup></li>
+  <li>한 리소스에 SG를 <strong>여러 개</strong> 붙일 수 있고, 이때 모든 SG의 규칙을 합친 하나의 규칙 집합으로 판정합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html">[2]</a></sup> 허용만 있으니 합쳐도 충돌이 없습니다.</li>
+  <li><strong>상태 저장</strong>: 인스턴스가 보낸 요청의 응답은 인바운드 규칙과 무관하게 들어오고, 허용된 인바운드의 응답은 아웃바운드 규칙과 무관하게 나갑니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html">[3]</a></sup></li>
+</ul>
+
+<h3>보안 그룹이 보안 그룹을 참조하기</h3>
+<p>규칙의 소스(또는 대상)로 IP 대신 <strong>다른 SG의 ID</strong>를 쓸 수 있습니다. 그러면 그 SG에 연결된 인스턴스들의 <strong>사설 IP</strong>에서 오는 트래픽이 허용됩니다. 참조된 SG의 규칙이 복사되는 것은 아닙니다. 같은 VPC이거나 피어링 연결된 VPC 사이 등에서 쓸 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html">[2]</a></sup></p>
+<table>
+<tr><th>SG</th><th>인바운드 규칙 (AWS 문서의 예)</th></tr>
+<tr><td>ALB용 SG</td><td>HTTP/HTTPS, 소스 <code>0.0.0.0/0</code></td></tr>
+<tr><td>웹 서버 SG</td><td>HTTP/HTTPS, 소스 <strong>ALB용 SG</strong></td></tr>
+<tr><td>DB SG</td><td>DB 포트, 소스 <strong>웹 서버 SG</strong></td></tr>
+</table>
+<p>Auto Scaling으로 웹 서버의 IP가 계속 바뀌어도 DB SG 규칙은 고칠 필요가 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html">[2]</a></sup></p>
+
+<h2>NACL의 세부</h2>
+<ul>
+  <li>모든 서브넷은 NACL 하나에 연결되어야 하며, 지정하지 않으면 <strong>기본 NACL</strong>에 연결됩니다. 한 NACL을 여러 서브넷에 연결할 수 있지만, 한 서브넷은 한 번에 NACL 하나만 가집니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html">[4]</a></sup></li>
+  <li>규칙 번호는 1~32766이고 <strong>가장 낮은 번호부터</strong> 평가해, 일치하는 규칙이 나오면 그 뒤는 보지 않습니다. 나중에 끼워 넣을 수 있게 10이나 100 단위로 번호를 매기라고 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html">[4]</a></sup></li>
+  <li>모든 NACL에는 번호가 <code>*</code>인 규칙이 있어, 어떤 번호 규칙에도 맞지 않는 패킷을 거부합니다. 이 규칙은 삭제할 수 없습니다. <strong>기본 NACL</strong>은 100번 규칙으로 모든 인바운드·아웃바운드를 허용합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/default-network-acl.html">[5]</a></sup></li>
+  <li>NACL은 트래픽이 서브넷에 <strong>들어오고 나갈 때</strong> 평가되며, 서브넷 안에서 라우팅될 때는 평가되지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html">[4]</a></sup></li>
+  <li>넓은 포트 범위를 열면서 그 안의 일부만 막으려면, <strong>거부 규칙에 더 낮은 번호</strong>를 줘야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nacl-rules.html">[6]</a></sup></li>
+</ul>
+
+<h3>임시 포트(ephemeral port)</h3>
+<p>클라이언트가 서버의 443번에 접속하면, 서버의 응답은 클라이언트가 고른 <strong>임시 포트</strong>로 돌아갑니다. NACL은 상태 비저장이므로 이 응답 경로를 따로 열어야 합니다. 범위는 클라이언트의 OS에 따라 다릅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/custom-network-acl.html">[7]</a></sup></p>
+<table>
+<tr><th>요청을 보낸 쪽</th><th>임시 포트 범위</th></tr>
+<tr><td>다수의 Linux 커널(Amazon Linux 포함)</td><td>32768–61000</td></tr>
+<tr><td>Windows Server 2008 이후</td><td>49152–65535</td></tr>
+<tr><td>Elastic Load Balancing, NAT 게이트웨이, Lambda</td><td>1024–65535</td></tr>
+</table>
+<p>실무적으로는 다양한 클라이언트를 받기 위해 <strong>1024–65535</strong>를 열고, 그 안의 악성 포트는 더 낮은 번호의 거부 규칙으로 막을 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/custom-network-acl.html">[7]</a></sup> 반대로 VPC 안의 인스턴스가 <em>클라이언트</em>일 때(예: 패치 다운로드)는 NACL <strong>인바운드</strong>에 그 인스턴스 OS의 임시 포트를 열어야 합니다.</p>
+
+<div class="callout">
+<p class="label">시험 단골</p>
+<p><strong>"특정 IP(대역)를 차단"</strong> → NACL 거부 규칙. 보안 그룹에는 거부가 없다.<br>
+<strong>"웹 계층에서 오는 트래픽만 DB에 허용"</strong> → DB SG의 소스로 웹 SG를 참조.<br>
+<strong>"인바운드는 열었는데 응답이 안 감"</strong> → NACL 아웃바운드에 임시 포트(1024–65535) 누락.<br>
+<strong>"SG 아웃바운드를 다 지웠는데 웹 응답은 나감"</strong> → 상태 저장이라 정상.<br>
+<strong>"NACL 규칙 순서"</strong> → 낮은 번호가 먼저, 첫 일치로 끝. 거부를 허용보다 낮은 번호에.</p>
+</div>
+
+<h2>연습</h2>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q1. (시험형) 보안팀이 <code>198.51.100.0/24</code> 대역에서 웹 애플리케이션으로 들어오는 공격 트래픽을 확인했습니다. 이 대역만 즉시 차단하고 다른 사용자는 계속 접속해야 합니다. 가장 적절한 방법은?</p>
+  <div class="options">
+    <button class="opt">웹 서버 SG에 이 대역을 거부하는 규칙 추가</button>
+    <button class="opt">웹 서버 SG에서 인바운드 규칙을 모두 삭제함</button>
+    <button class="opt">서브넷 라우팅 테이블에서 IGW 라우트를 삭제</button>
+    <button class="opt">서브넷 NACL에 이 대역 거부 규칙을 추가함</button>
+  </div>
+  <div class="feedback"><p>보안 그룹에는 거부 규칙이 없습니다. 특정 대역만 막는 것은 허용·거부가 모두 되는 NACL의 몫입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[1]</a></sup> 거부 규칙은 기존 허용 규칙보다 낮은 번호로 넣어야 먼저 적용됩니다. 나머지 보기는 정상 사용자까지 막습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. 서브넷 NACL의 인바운드 규칙이 아래와 같습니다. <code>203.0.113.7</code>에서 SSH(TCP 22)로 접속하면?</p>
+<pre><code>100  TCP 22  0.0.0.0/0        ALLOW
+200  TCP 22  203.0.113.0/24   DENY
+*    ALL     0.0.0.0/0        DENY</code></pre>
+  <div class="options">
+    <button class="opt">허용 · 100번 규칙에서 먼저 일치함</button>
+    <button class="opt">거부 · 구체적인 200번 규칙이 적용</button>
+    <button class="opt">거부 · 거부가 허용보다 항상 우선한다</button>
+    <button class="opt">거부 · 마지막 * 규칙이 최종 적용됨</button>
+  </div>
+  <div class="feedback"><p>NACL은 낮은 번호부터 평가해 처음 일치한 규칙을 적용하고 멈춥니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nacl-rules.html">[6]</a></sup> 100번이 이미 일치하므로 200번은 보지도 않습니다. "더 구체적인 것이 이긴다"는 라우팅 테이블(0004)의 규칙이고, "거부가 항상 이긴다"는 IAM(0001)의 규칙입니다. 섞지 마세요. 대역을 막으려면 거부 규칙 번호를 100보다 낮게 줘야 합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q3. 퍼블릭 서브넷의 웹 서버에 사용자 지정 NACL을 붙였습니다. 인바운드: TCP 443 허용(0.0.0.0/0). 아웃바운드: TCP 443 허용(0.0.0.0/0). 보안 그룹은 443 인바운드를 허용합니다. 사용자들이 페이지를 받지 못합니다. 원인은?</p>
+  <div class="options">
+    <button class="opt">보안 그룹에 443 아웃바운드 규칙이 빠졌음</button>
+    <button class="opt">NACL 인바운드에는 임시 포트 허용이 없음</button>
+    <button class="opt">NACL 아웃바운드에 임시 포트 허용이 없음</button>
+    <button class="opt">NACL 규칙 번호가 SG 규칙과 겹쳐 충돌</button>
+  </div>
+  <div class="feedback"><p>서버의 응답은 클라이언트의 443번이 아니라 클라이언트의 <strong>임시 포트</strong>로 나갑니다. NACL은 상태 비저장이라 아웃바운드에 그 범위(실무적으로 1024–65535)를 열어야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/custom-network-acl.html">[7]</a></sup> 보안 그룹은 상태 저장이라 응답에 아웃바운드 규칙이 필요 없습니다. 인바운드 임시 포트는 서버가 <em>클라이언트</em>일 때 필요합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. 웹 서버 SG의 인바운드는 TCP 443(0.0.0.0/0) 허용이고, 운영자가 아웃바운드 규칙을 <strong>모두 삭제</strong>했습니다. NACL은 기본 NACL입니다. 인터넷 사용자의 HTTPS 요청에 대한 응답은?</p>
+  <div class="options">
+    <button class="opt">차단됨 · 아웃바운드 규칙이 하나도 없어서</button>
+    <button class="opt">전달됨 · 허용된 요청의 응답은 자동 허용</button>
+    <button class="opt">차단됨 · 기본 NACL이 아웃바운드 막음</button>
+    <button class="opt">전달됨 · SG는 인바운드만 검사하기 때문</button>
+  </div>
+  <div class="feedback"><p>보안 그룹은 상태 저장입니다. 허용된 인바운드 요청의 응답은 아웃바운드 규칙과 상관없이 나갑니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html">[3]</a></sup> 다만 SG도 아웃바운드를 검사합니다. 아웃바운드 규칙이 없으면 서버가 <em>먼저 시작하는</em> 연결(예: 외부 API 호출)은 나가지 못합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html">[2]</a></sup> 기본 NACL은 모두 허용입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q5. (시험형) 3계층 애플리케이션에서 웹 서버는 Auto Scaling 그룹으로 수시로 교체됩니다. DB 인스턴스는 웹 서버에서 오는 MySQL(3306) 트래픽만 받아야 합니다. 운영 부담이 가장 적은 방법은?</p>
+  <div class="options">
+    <button class="opt">DB SG에 웹 서버 IP를 하나씩 수동으로 등록함</button>
+    <button class="opt">DB 서브넷 NACL에 웹 서버 IP 허용을 추가함</button>
+    <button class="opt">DB SG 3306 규칙 소스로 웹 서버 SG 지정</button>
+    <button class="opt">DB SG에서 3306을 0.0.0.0/0으로 개방</button>
+  </div>
+  <div class="feedback"><p>SG 참조를 쓰면 웹 서버 SG에 연결된 인스턴스라면 IP가 바뀌어도 자동으로 허용됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html">[2]</a></sup> IP를 손으로 관리하는 보기는 Auto Scaling과 맞지 않고, <code>0.0.0.0/0</code>은 최소 권한에 어긋납니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,3">
+  <p class="q-title">Q6. <strong>보안 그룹</strong>에 대한 설명으로 옳은 것을 <strong>두 개</strong> 고르세요.</p>
+  <div class="options">
+    <button class="opt">허용 규칙만 있고 거부 규칙은 둘 수 없다</button>
+    <button class="opt">번호가 낮은 규칙부터 차례로 평가해 멈춘다</button>
+    <button class="opt">서브넷에 연결되어 그 안 전체에 적용이 됨</button>
+    <button class="opt">결정 전에 모든 규칙을 함께 보고 판단한다</button>
+  </div>
+  <div class="feedback"><p>보안 그룹: 허용만, 모든 규칙 평가, 인스턴스 수준, 상태 저장. 번호 순서 평가와 서브넷 수준은 NACL의 특성입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[1]</a></sup></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q7. (0004 복습) EC2 인스턴스에 퍼블릭 IP가 있고, SG는 TCP 80(0.0.0.0/0)을 허용하며, 서브넷은 기본 NACL을 씁니다. 그래도 인터넷에서 웹 페이지가 열리지 않습니다. 서브넷 라우팅 테이블에는 <code>10.0.0.0/16 local</code>만 있습니다. 가장 먼저 고칠 것은?</p>
+  <div class="options">
+    <button class="opt">NACL에 TCP 80 인바운드 허용 규칙을 추가</button>
+    <button class="opt">라우팅 테이블에 0.0.0.0/0 → IGW 추가</button>
+    <button class="opt">보안 그룹의 아웃바운드에 임시 포트 범위를 추가함</button>
+    <button class="opt">EC2 인스턴스를 다른 가용 영역으로 옮겨 재실행</button>
+  </div>
+  <div class="feedback"><p>IGW 라우트가 없는 서브넷은 프라이빗 서브넷이라, 방화벽이 다 열려 있어도 인터넷과 통신할 수 없습니다(0004).<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">[8]</a></sup> 기본 NACL은 이미 모두 허용이고, SG는 상태 저장이라 응답용 규칙이 필요 없습니다. 연결 문제는 라우팅 → NACL → SG 순서로 점검하세요.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q8. 프라이빗 서브넷의 앱 서버 앞에 Application Load Balancer가 있습니다. 앱 서브넷의 사용자 지정 NACL은 아웃바운드에 TCP 32768–65535만 허용합니다. 로드 밸런서의 요청 일부가 간헐적으로 응답을 받지 못합니다. 가장 알맞은 수정은?</p>
+  <div class="options">
+    <button class="opt">NACL을 아예 지우고 보안 그룹만으로 전부 대체</button>
+    <button class="opt">앱 서버 SG에 32768 미만 포트 거부를 추가</button>
+    <button class="opt">NACL 아웃바운드에 TCP 443만 따로 추가함</button>
+    <button class="opt">NACL 아웃바운드 임시 포트를 1024부터 개방</button>
+  </div>
+  <div class="feedback"><p>Elastic Load Balancing이 보내는 요청은 1024–65535 범위의 임시 포트를 씁니다. 32768 미만 포트로 돌아가야 하는 응답이 NACL에서 버려집니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/custom-network-acl.html">[7]</a></sup> NACL은 서브넷에 반드시 하나 연결되므로 "지운다"는 선택지가 될 수 없고, SG에는 거부 규칙이 없습니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 비교표를 다시 그려 보세요: 동작 수준, 규칙 종류, 규칙 평가 방식, 응답 트래픽. 그리고 NACL에서 임시 포트를 열어야 하는 방향은 언제 아웃바운드이고 언제 인바운드인가?</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p><strong>SG</strong>: 인스턴스 수준, 허용만, 모든 규칙 평가, 상태 저장(응답 자동 허용). <strong>NACL</strong>: 서브넷 수준, 허용·거부, 번호 오름차순 첫 일치, 상태 비저장(응답 명시 허용).</p>
+    <p>VPC 안의 인스턴스가 <strong>서버</strong>라면 응답이 나가므로 NACL <strong>아웃바운드</strong>에 클라이언트의 임시 포트를, 인스턴스가 <strong>클라이언트</strong>라면 응답이 들어오므로 NACL <strong>인바운드</strong>에 자기 OS의 임시 포트를 엽니다. 실무 범위는 1024–65535.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 8분)</strong>: <a href="https://docs.aws.amazon.com/vpc/latest/userguide/custom-network-acl.html">"Custom network ACLs for your VPC"</a>. 규칙 예시 표와 임시 포트 절이 오늘 Q3·Q8의 근거입니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 프리 티어)</strong>: 퍼블릭 서브넷에 프리 티어 EC2 하나를 띄우고 웹 서버를 켠 뒤, 서브넷에 새 NACL을 만들어 연결하고 인바운드 80만 허용해 보세요. 페이지가 안 열리는 것을 확인한 다음 아웃바운드 1024–65535를 추가하면 열립니다. 끝나면 인스턴스를 종료하고 서브넷을 기본 NACL로 되돌리세요.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q2는 0001(IAM)·0004(라우팅)의 규칙과 헷갈리게 만든 문제라, 틀렸다면 어떤 규칙을 떠올렸는지 들려주세요. 세 가지 "누가 이기나" 규칙을 한 번에 정리해 드리겠습니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">Amazon VPC, Infrastructure security (Compare security groups and network ACLs)</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html">Amazon VPC, Security group rules</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-security-groups.html">Amazon VPC, Control traffic to your AWS resources using security groups</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html">Amazon VPC, Control subnet traffic with network access control lists</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/default-network-acl.html">Amazon VPC, Default network ACL for a VPC</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nacl-rules.html">Amazon VPC, Network ACL rules</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/custom-network-acl.html">Amazon VPC, Custom network ACLs for your VPC (Ephemeral ports)</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">Amazon VPC, Enable internet access for a VPC using an internet gateway</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0004-vpc-subnets-routing.html">← 0004 VPC 기초</a></span>
+  <span><a href="0006-nat-and-vpc-endpoints.html">다음: 0006 NAT와 VPC 엔드포인트 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

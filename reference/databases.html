@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>데이터베이스 치트시트</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">레퍼런스 · 데이터베이스</p>
+<h1>데이터베이스 치트시트</h1>
+<p class="lede">요구 사항 한 줄을 보고 DB와 기능을 고를 때 펼쳐 보는 한 장. 레슨 <a href="../lessons/0021-rds-and-aurora.html">0021</a>, <a href="../lessons/0022-dynamodb-and-elasticache.html">0022</a>, <a href="../lessons/0023-choosing-and-migrating-databases.html">0023</a>의 요약입니다.</p>
+
+<h2>요구 사항 → 데이터베이스</h2>
+<table>
+<tr><th>요구 사항 (시험 키워드)</th><th>정답</th></tr>
+<tr><td>구조화된 데이터, 조인, 트랜잭션, 기존 관계형 이전</td><td><strong>RDS</strong> (PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, Db2) / <strong>Aurora</strong></td></tr>
+<tr><td>세션 저장소, 장바구니, 대규모 처리량, 한 자릿수 ms, 서버리스</td><td><strong>DynamoDB</strong></td></tr>
+<tr><td>JSON 문서, MongoDB 호환, 기존 드라이버 그대로</td><td><strong>DocumentDB</strong></td></tr>
+<tr><td>캐시, 마이크로초 읽기, DB 부하 감소</td><td><strong>ElastiCache</strong> (DynamoDB 앞이면 <strong>DAX</strong>)</td></tr>
+<tr><td>인메모리인데 데이터 영속성이 필요한 주 DB</td><td><strong>MemoryDB</strong></td></tr>
+<tr><td>친구의 친구, 사기 탐지, 추천, 지식 그래프</td><td><strong>Neptune</strong> (Gremlin, openCypher, SPARQL)</td></tr>
+<tr><td>Cassandra 이전, 와이드 컬럼</td><td><strong>Keyspaces</strong></td></tr>
+<tr><td>IoT 센서, 지표, 타임스탬프 데이터</td><td><strong>Timestream</strong> (LiveAnalytics는 2025-06-20부터 신규 고객 불가 → InfluxDB 권장)</td></tr>
+<tr><td>페타바이트 분석, BI, OLAP, 컬럼 기반</td><td><strong>Redshift</strong></td></tr>
+</table>
+
+<h2>RDS 가용성과 확장 (0021)</h2>
+<table>
+<tr><th></th><th>Multi-AZ DB 인스턴스</th><th>Multi-AZ DB 클러스터</th><th>읽기 전용 복제본</th></tr>
+<tr><td>목적</td><td>고가용성</td><td>고가용성 + 읽기</td><td>읽기 확장, DR</td></tr>
+<tr><td>복제</td><td>동기식</td><td>반동기식</td><td>비동기식</td></tr>
+<tr><td>대기에서 읽기</td><td><strong>불가</strong></td><td>리더 2개 가능</td><td>가능</td></tr>
+<tr><td>범위</td><td>같은 리전 다른 AZ</td><td>AZ 3곳</td><td>다른 리전 가능</td></tr>
+<tr><td>장애 시</td><td>자동, DNS 전환, 보통 60–120초</td><td>자동</td><td>수동 승격</td></tr>
+</table>
+<ul>
+  <li><strong>RDS Proxy</strong>: 연결 풀링. Lambda, "too many connections", 장애 조치 시간 최대 66% 단축, Secrets Manager/IAM 인증. 같은 VPC, 퍼블릭 불가.</li>
+  <li><strong>백업</strong>: 자동 백업 보존 0–35일(PITR). 그 이상 또는 인스턴스 삭제 후에도 보관 → 수동 스냅샷.</li>
+  <li><strong>스토리지 자동 확장</strong>: 여유 10% 이하 5분 지속 시 최대 임곗값까지 증가. 축소 불가.</li>
+  <li>RDS 읽기 전용 복제본은 <strong>자동 확장 없음</strong>. Aurora는 <strong>Aurora Auto Scaling</strong>이 복제본 수를 조정.</li>
+</ul>
+
+<h2>Aurora (0021)</h2>
+<table>
+<tr><td>클러스터 볼륨</td><td>AZ 3곳에 사본, 자동 증가, 라이터·리더가 공유</td></tr>
+<tr><td>Aurora 복제본</td><td>최대 15개, 지연 보통 100ms 미만, 장애 조치 대상, 리더 엔드포인트로 분산</td></tr>
+<tr><td>Aurora Serverless</td><td>0.5 ACU 단위 자동 조정, 변동·예측 불가·개발/테스트. 최소 0 ACU → 자동 일시 중지(재개 약 15초)</td></tr>
+<tr><td>Global Database</td><td>보조 리전 최대 10개, 스토리지 기반 복제 1초 미만, 낮은 RPO/RTO, switchover(계획)/failover(장애), 쓰기 전달</td></tr>
+<tr><td>스토리지 구성</td><td>I/O 비용 ≥ 25% → I/O-Optimized, &lt; 25% → Standard</td></tr>
+</table>
+
+<h2>DynamoDB (0022)</h2>
+<table>
+<tr><td>온디맨드</td><td>기본·권장, 요청당 과금, 예측 불가, 0까지 축소</td></tr>
+<tr><td>프로비저닝</td><td>예측 가능·꾸준, 시간당 과금, Auto Scaling(목표 사용률 권장 70%). 1 RCU = 4 KB 강력 일관 1회/초, 1 WCU = 1 KB 1회/초</td></tr>
+<tr><td>DAX</td><td>API 호환 캐시, 최종적 일관 읽기를 µs로. <strong>강력한 일관성·쓰기 위주에는 부적합</strong></td></tr>
+<tr><td>글로벌 테이블</td><td>다중 리전 다중 활성(모든 복제본 읽기·쓰기), MREC(기본)/MRSC</td></tr>
+<tr><td>Streams</td><td>항목 변경 로그 24시간, Lambda 트리거</td></tr>
+<tr><td>TTL</td><td>epoch 초 속성, 만료 후 보통 며칠 안에 삭제, 쓰기 용량 소비 없음</td></tr>
+<tr><td>PITR</td><td>최대 35일(1–35 설정) 초 단위 복구. 장기 보관은 온디맨드 백업</td></tr>
+</table>
+
+<h2>ElastiCache (0022)</h2>
+<table>
+<tr><th>Memcached</th><th>Valkey / Redis OSS</th></tr>
+<tr><td>가장 단순, 객체 캐시, 멀티스레드, 노드 추가·제거로 확장</td><td>복잡한 타입(정렬 집합 → 리더보드), 복제·자동 장애 조치, 백업·복원, Pub/Sub, 지리 공간</td></tr>
+</table>
+<table>
+<tr><th></th><th>지연 로딩</th><th>라이트 스루</th></tr>
+<tr><td>장점</td><td>요청된 것만 캐싱, 노드 장애에 강함</td><td>캐시가 항상 최신</td></tr>
+<tr><td>단점</td><td>stale 데이터, 미스 시 왕복 3번</td><td>새 노드 데이터 누락, 캐시 낭비</td></tr>
+</table>
+<p>두 방식 + <strong>TTL</strong>을 함께 쓰는 것이 기본. 쓰기 위주 문제는 캐시가 아니라 쓰기 용량으로 푼다.</p>
+
+<h2>마이그레이션 (0023)</h2>
+<table>
+<tr><td>동종 (MySQL → RDS for MySQL)</td><td>DMS로 데이터만</td></tr>
+<tr><td>이기종 (Oracle → Aurora PostgreSQL)</td><td>① DMS Schema Conversion 또는 AWS SCT로 스키마·코드 변환(데이터는 안 옮김) → ② DMS</td></tr>
+<tr><td>최소 다운타임</td><td>DMS <strong>전체 로드 + CDC</strong> (소스 운영 유지, 변경 계속 반영 후 전환). CDC는 실시간이 아니며 SLA 없음</td></tr>
+</table>
+
+<h2>비용 한 줄</h2>
+<ul>
+  <li>변동·간헐적 → 서버리스(Aurora Serverless 0 ACU, DynamoDB 온디맨드). 꾸준·예측 가능 → 프로비저닝.</li>
+  <li>EC2 재호스팅은 빠르지만 운영이 남음. "최소 운영 오버헤드" → 관리형(RDS/Aurora).</li>
+  <li>상용 라이선스 탈피 → Aurora + Schema Conversion + DMS.</li>
+</ul>
+
+<p class="muted" style="font-size:.85rem">출처: <a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">AWS DB 선택 가이드</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">RDS Multi-AZ</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">장애 조치</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/multi-az-db-clusters-concepts.html">Multi-AZ DB 클러스터</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">읽기 전용 복제본</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-planning.html">RDS Proxy</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.BackupRetention.html">백업 보존</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIOPS.Autoscaling.html">스토리지 자동 확장</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html">Aurora 스토리지</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Replication.html">Aurora 복제</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html">Aurora Serverless 자동 일시 중지</a> · <a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">Aurora Global Database</a> · <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/provisioned-capacity-mode.html">DynamoDB 용량</a> · <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DAX.html">DAX</a> · <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GlobalTables.html">글로벌 테이블</a> · <a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/SelectEngine.html">ElastiCache 엔진 비교</a> · <a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/Strategies.html">캐시 전략</a> · <a href="https://docs.aws.amazon.com/timestream/latest/developerguide/AmazonTimestreamForLiveAnalytics-availability-change.html">Timestream 변경</a> · <a href="https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html">AWS DMS</a> · <a href="https://docs.aws.amazon.com/dms/latest/userguide/CHAP_SchemaConversion.html">DMS Schema Conversion</a> · <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_columnar_storage_disk_mem_mgmnt.html">Redshift 컬럼 저장</a></p>
+</main>
+</body>
+</html>

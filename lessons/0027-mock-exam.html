@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>종합 모의 문제</title>
+<link rel="stylesheet" href="../assets/course.css">
+<style>
+  .qtag { font-size: .8rem; color: var(--muted); margin: .6rem 0 0; }
+</style>
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0027 · 전 도메인 종합 · 모의 문제</p>
+<h1>종합 모의 문제 25문항:<br>네 도메인을 섞어서</h1>
+<p class="lede">지금까지 배운 내용을 실제 시험처럼 섞어 풉니다. 도메인 순서도, 서비스 순서도 일부러 뒤섞었습니다. 문제를 읽고 "이건 몇 번 레슨 내용이지?"를 스스로 알아차리는 것까지가 연습입니다.</p>
+<div class="meta"><span>⏱ 풀이 35분 + 해설 복습</span><span>🎯 오늘의 승리: 25문항 완주와 오답 목록</span><span>📌 <a href="../reference/exam-strategy.html">시험 전략 시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>푸는 방법</h2>
+<p>실제 SAA-C03은 <strong>65문항, 130분</strong>입니다.<sup class="cite"><a href="https://aws.amazon.com/certification/certified-solutions-architect-associate/">[2]</a></sup> 그중 50문항이 점수에 반영되고, 15문항은 점수에 반영되지 않는 평가용 문항인데 어느 것인지 표시되지 않습니다. 답하지 않은 문항은 오답 처리되고 <strong>추측에 대한 감점은 없습니다</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup> 그러니 모르는 문제도 비워 두지 마세요.</p>
+<ol>
+  <li><strong>타이머를 35분에 맞추세요.</strong> 실전 평균은 문항당 2분이지만, 여기서는 1.4분 정도로 조금 빠르게 잡아 실전에서 검토 시간을 남기는 연습을 합니다.</li>
+  <li><strong>해설은 답을 고르는 즉시 열립니다.</strong> 시간을 재는 동안에는 해설을 읽지 말고 바로 다음 문항으로 넘어가세요. 다 푼 뒤 돌아와서 읽습니다.</li>
+  <li><strong>확신 없이 고른 번호는 메모하세요.</strong> 실제 시험의 "검토 표시(flag)"와 같은 습관입니다. 맞혔더라도 찍어서 맞힌 문제는 복습 대상입니다.</li>
+  <li>"두 개를 고르세요" 문항은 선택지를 두 개 누른 뒤 <strong>제출</strong>을 눌러야 채점됩니다. 실제 시험의 복수 응답형은 다섯 개 이상 선택지 중 두 개 이상이 정답입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup></li>
+</ol>
+
+<table>
+<tr><th>도메인</th><th>시험 비중<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup></th><th>이 모의 문제</th></tr>
+<tr><td>1. 보안 아키텍처 설계</td><td>30%</td><td>8문항</td></tr>
+<tr><td>2. 복원력 있는 아키텍처 설계</td><td>26%</td><td>7문항</td></tr>
+<tr><td>3. 고성능 아키텍처 설계</td><td>24%</td><td>6문항</td></tr>
+<tr><td>4. 비용 최적화 아키텍처 설계</td><td>20%</td><td>4문항</td></tr>
+</table>
+<p class="muted">각 해설 끝에 도메인과 관련 레슨 링크가 있습니다. 오답이 어느 도메인에 몰리는지가 이번 모의 문제에서 얻을 가장 중요한 정보입니다.</p>
+
+<h2>문제</h2>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 온라인 쇼핑몰의 주문 처리 서버가 프로모션 시간마다 몰리는 주문을 따라가지 못해 일부 주문이 유실됩니다. 주문은 몇 분 늦게 처리되어도 괜찮지만 절대 잃어버리면 안 됩니다. 가장 적은 운영 오버헤드로 요구 사항을 충족하는 방법은?</p>
+  <div class="options">
+    <button class="opt">처리 서버를 더 큰 인스턴스 유형으로 바꿔 둠</button>
+    <button class="opt">SNS 토픽으로 주문을 처리 서버에 바로 푸시</button>
+    <button class="opt">주문을 SQS 큐에 넣고 처리 서버가 꺼내 감</button>
+    <button class="opt">Route 53 가중치 라우팅으로 주문을 분산</button>
+  </div>
+  <div class="feedback"><p>"일시적 급증 + 늦어도 되지만 유실 금지"는 <strong>SQS로 버퍼링</strong>하라는 신호입니다. SQS는 생산자와 소비자를 분리하고, 메시지를 여러 서버에 중복 저장하며, 급증에도 별도 프로비저닝 없이 확장됩니다. 메시지는 기본 4일, 최대 14일까지 보관됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">[3]</a></sup> SNS는 구독자에게 밀어 넣는(push) 방식이라 처리 서버가 감당하지 못하는 문제는 그대로입니다. AWS도 구독자가 오프라인일 때 유실을 막으려면 SNS를 SQS와 함께 쓰라고 안내합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">[3]</a></sup> 더 큰 인스턴스는 급증 폭을 예측해야 하고 평소엔 낭비이며, Route 53은 DNS 수준 분산이라 서버 처리량 부족을 해결하지 못합니다.</p>
+  <p class="qtag">도메인 2 · <a href="0014-sqs-sns-eventbridge.html">0014 느슨한 결합</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. 회사의 EC2 인스턴스는 프라이빗 서브넷에 있고, 같은 리전의 S3 버킷에 매일 대량의 데이터를 씁니다. 보안팀은 이 트래픽이 인터넷 게이트웨이나 NAT 장치를 거치지 않기를 요구하고, 재무팀은 추가 요금이 없기를 원합니다. 어떻게 해야 합니까?</p>
+  <div class="options">
+    <button class="opt">S3 게이트웨이 VPC 엔드포인트를 만들고 라우팅 연결</button>
+    <button class="opt">퍼블릭 서브넷에 NAT 게이트웨이를 두고 경로를 추가함</button>
+    <button class="opt">각 인스턴스에 탄력적 IP를 붙여서 S3로 직접 연결함</button>
+    <button class="opt">Site-to-Site VPN으로 S3 트래픽을 전송함</button>
+  </div>
+  <div class="feedback"><p><strong>게이트웨이 VPC 엔드포인트</strong>는 인터넷 게이트웨이나 NAT 장치 없이 S3·DynamoDB에 연결하고, <strong>추가 요금이 없다</strong>고 문서에 명시되어 있습니다. 선택한 라우팅 테이블에 서비스 접두사 목록 → 엔드포인트 경로가 자동으로 추가됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html">[4]</a></sup> NAT 게이트웨이는 "NAT를 거치지 말 것"을 정면으로 위반합니다. 탄력적 IP로 직접 나가려면 인터넷 게이트웨이 경로가 필요하고, 그러면 더 이상 프라이빗 서브넷이 아닙니다. Site-to-Site VPN은 온프레미스와 VPC를 잇는 용도입니다.</p>
+  <p class="qtag">도메인 1 · <a href="0006-nat-and-vpc-endpoints.html">0006 NAT와 VPC 엔드포인트</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q3. 회사가 매일 밤 동영상 트랜스코딩 배치 작업을 실행합니다. 작업은 진행 상황을 체크포인트로 저장하므로 중간에 중단되어도 다시 이어서 할 수 있고, 다음 날 아침까지만 끝나면 됩니다. 가장 비용 효율적인 EC2 구매 옵션은?</p>
+  <div class="options">
+    <button class="opt">온디맨드 인스턴스로 매일 밤 실행함</button>
+    <button class="opt">3년 약정의 예약 인스턴스를 구매함</button>
+    <button class="opt">1년 Savings Plans 약정</button>
+    <button class="opt">스팟 인스턴스를 써서 매일 밤 실행</button>
+  </div>
+  <div class="feedback"><p>"중단되어도 됨 + 시간 유연 + 비용 최소"는 <strong>스팟 인스턴스</strong>입니다. 스팟은 남는 EC2 용량을 온디맨드보다 크게 할인된 가격에 쓰는 대신, EC2가 용량을 회수할 때 2분 전에 경고하고 중단합니다. AWS는 배치 작업, 데이터 분석, 백그라운드 처리를 적합한 예로 듭니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[5]</a></sup> 예약 인스턴스와 Savings Plans는 꾸준히 쓰는 사용량에 대한 1년·3년 약정이라 밤에만 도는 작업에는 과합니다. 참고로 스팟 사용분은 Savings Plans 할인이 적용되지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[5]</a></sup> 온디맨드는 동작은 하지만 가장 저렴하지 않습니다.</p>
+  <p class="qtag">도메인 4 · <a href="0010-ec2-instances-and-pricing.html">0010 EC2 구매 옵션</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. 게임 회사의 리더보드 데이터가 DynamoDB에 있고, 같은 항목을 반복해서 읽는 요청이 매우 많습니다. 읽기 응답 시간을 한 자릿수 밀리초에서 마이크로초 수준으로 줄여야 하며, 애플리케이션 코드 변경은 최소화해야 합니다. 무엇을 해야 합니까?</p>
+  <div class="options">
+    <button class="opt">테이블의 읽기 용량 단위를 추가 프로비저닝함</button>
+    <button class="opt">DynamoDB 앞에 DAX 클러스터를 배치</button>
+    <button class="opt">DynamoDB 글로벌 테이블로 전환해 사용</button>
+    <button class="opt">테이블을 RDS for MySQL로 옮겨 감</button>
+  </div>
+  <div class="feedback"><p><strong>DAX</strong>는 DynamoDB와 API가 호환되는 인메모리 캐시로, 최종적 일관성 읽기의 응답 시간을 밀리초에서 <strong>마이크로초</strong>로 줄이고 기존 앱에 최소한의 변경만 요구합니다. 같은 키를 반복해서 읽는 워크로드에 특히 유리합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DAX.html">[6]</a></sup> 읽기 용량을 늘리면 처리량은 늘지만 지연 시간이 마이크로초로 내려가지는 않습니다. 글로벌 테이블은 여러 리전에서 읽고 쓰는 기능이고,<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[15]</a></sup> RDS 이전은 "코드 변경 최소"와 정반대입니다. 단, 강력한 일관성 읽기가 꼭 필요한 앱에는 DAX가 맞지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DAX.html">[6]</a></sup></p>
+  <p class="qtag">도메인 3 · <a href="0022-dynamodb-and-elasticache.html">0022 DynamoDB와 ElastiCache</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q5. 퍼블릭 서브넷의 웹 서버로 특정 IP 대역(203.0.113.0/24)에서 악성 요청이 들어오고 있습니다. 보안팀은 다른 트래픽은 그대로 두고 이 대역만 즉시 차단하려 합니다. 가장 간단한 방법은?</p>
+  <div class="options">
+    <button class="opt">보안 그룹에 해당 대역의 거부 규칙을 새로 추가</button>
+    <button class="opt">IAM 정책에 해당 대역의 Deny 문장을 추가</button>
+    <button class="opt">네트워크 ACL에 낮은 번호의 거부 규칙 추가함</button>
+    <button class="opt">라우팅 테이블에서 해당 대역의 경로를 모두 삭제</button>
+  </div>
+  <div class="feedback"><p><strong>보안 그룹은 허용 규칙만</strong> 있고, <strong>네트워크 ACL은 허용과 거부 규칙</strong>을 모두 가집니다. NACL은 번호가 낮은 규칙부터 평가해 처음 일치한 규칙을 적용하므로, 기존 허용 규칙보다 낮은 번호로 거부 규칙을 넣어야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[7]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html">[8]</a></sup> AWS도 NACL을 "특정 트래픽을 거부하는" 보조 통제로 쓰라고 안내합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[7]</a></sup> "보안 그룹 거부 규칙"은 존재하지 않는 기능이라 대표적인 함정입니다. IAM 정책은 AWS API 호출을 통제할 뿐 웹 서버로 오는 네트워크 패킷과는 무관하고, 라우팅 테이블은 나가는 경로를 정하는 것이지 들어오는 출발지를 거르는 장치가 아닙니다.</p>
+  <p class="qtag">도메인 1 · <a href="0005-security-groups-vs-nacls.html">0005 보안 그룹 vs 네트워크 ACL</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q6. 회사가 주문 데이터베이스를 RDS for PostgreSQL 단일 인스턴스로 운영합니다. 가용 영역 장애가 나도 관리자의 개입 없이 자동으로 복구되어야 하며, 애플리케이션의 DB 연결 엔드포인트는 바꾸고 싶지 않습니다. 무엇을 해야 합니까?</p>
+  <div class="options">
+    <button class="opt">Multi-AZ DB 인스턴스 배포로 변경함</button>
+    <button class="opt">다른 AZ에 읽기 전용 복제본을 하나 생성함</button>
+    <button class="opt">자동 백업을 켜고 장애 시 스냅샷에서 복원함</button>
+    <button class="opt">같은 AZ에서 더 큰 인스턴스 클래스로 변경</button>
+  </div>
+  <div class="feedback"><p><strong>Multi-AZ DB 인스턴스 배포</strong>는 다른 AZ에 <strong>동기식</strong> 대기 복제본을 두고,<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[9]</a></sup> 장애 시 <strong>자동으로</strong> 대기 인스턴스로 전환합니다. 이때 DB 인스턴스의 DNS 레코드가 대기 인스턴스를 가리키도록 바뀌므로 엔드포인트는 그대로입니다. 전환은 보통 60~120초 걸립니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">[10]</a></sup> 읽기 전용 복제본은 <strong>비동기식</strong>이고 읽기 확장용이며, DR에 쓰려면 수동으로 승격해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[11]</a></sup> 스냅샷 복원은 수동이고 새 인스턴스가 생기며, 같은 AZ의 큰 인스턴스는 AZ 장애를 막지 못합니다. 반대로 대기 복제본은 읽기 트래픽을 처리하지 않는다는 점도 기억하세요.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[9]</a></sup></p>
+  <p class="qtag">도메인 2 · <a href="0021-rds-and-aurora.html">0021 RDS·Aurora</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1,3">
+  <p class="q-title">Q7. 프라이빗 서브넷의 EC2 인스턴스가 인터넷에서 OS 패치를 내려받아야 합니다. 단, 인터넷 쪽에서 인스턴스로 먼저 연결을 시작할 수는 없어야 합니다. 함께 수행해야 할 두 단계는? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">프라이빗 서브넷에 NAT 게이트웨이를 하나 생성</button>
+    <button class="opt">퍼블릭 서브넷에 NAT 게이트웨이를 하나 생성함</button>
+    <button class="opt">각각의 인스턴스에 퍼블릭 IPv4 주소를 할당함</button>
+    <button class="opt">프라이빗 라우팅에 0.0.0.0/0→NAT 추가</button>
+    <button class="opt">보안 그룹 인바운드를 0.0.0.0/0로 허용함</button>
+  </div>
+  <div class="feedback"><p>퍼블릭 NAT 게이트웨이는 <strong>퍼블릭 서브넷</strong>에 만들고 탄력적 IP를 연결합니다. 그다음 프라이빗 서브넷의 라우팅 테이블에서 인터넷행 트래픽(0.0.0.0/0)을 NAT 게이트웨이로 보내면, 인스턴스는 밖으로 나갈 수 있지만 외부에서 먼저 연결을 시작할 수는 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html">[12]</a></sup> 프라이빗 서브넷에 둔 NAT는 인터넷 게이트웨이로 가는 경로가 없어 쓸모가 없습니다. 퍼블릭 IP를 붙이거나 인바운드를 전부 여는 것은 "외부에서 연결 시작 금지"를 깨뜨립니다.</p>
+  <p class="qtag">도메인 1 · <a href="0006-nat-and-vpc-endpoints.html">0006 NAT와 VPC 엔드포인트</a> · <a href="0004-vpc-subnets-routing.html">0004 VPC 기초</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q8. 회사가 콘텐츠 관리 시스템을 여러 가용 영역에 걸친 Linux EC2 인스턴스 수십 대에서 운영합니다. 모든 인스턴스가 같은 파일을 동시에 읽고 써야 하고, 용량은 미리 계획하지 않아도 자동으로 늘고 줄어야 합니다. 가장 운영 오버헤드가 적은 방법은?</p>
+  <div class="options">
+    <button class="opt">인스턴스마다 EBS 볼륨을 붙이고 rsync로 맞춤</button>
+    <button class="opt">S3에 저장하고 앱을 API 호출 방식으로 고쳐 둠</button>
+    <button class="opt">EC2 한 대에 NFS 서버를 직접 구축해서 공유함</button>
+    <button class="opt">리전 EFS 파일 시스템을 모든 인스턴스에 마운트함</button>
+  </div>
+  <div class="feedback"><p><strong>Amazon EFS</strong>는 서버리스이고 완전 탄력적인 파일 스토리지로, 용량을 프로비저닝할 필요 없이 자동으로 늘고 줄며, NFSv4를 지원해 기존 앱이 그대로 동작합니다. 리전(Regional) 파일 시스템은 여러 AZ에 데이터를 중복 저장하고, 여러 인스턴스의 대규모 병렬 접근을 지원합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">[13]</a></sup> EBS+rsync는 동시 쓰기 충돌과 동기화 운영 부담이 생기고, 직접 구축한 NFS 서버는 패치·확장을 직접 해야 하며 그 서버 하나가 단일 장애점입니다. S3로 바꾸는 것은 앱 수정이 필요해 오버헤드가 큽니다. 참고: EFS는 Windows EC2 인스턴스에서 지원되지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">[13]</a></sup></p>
+  <p class="qtag">도메인 3 · <a href="0019-ebs-efs-fsx.html">0019 EBS·EFS·FSx</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q9. 보안 감사에서 애플리케이션 소스 코드에 RDS 데이터베이스 암호가 하드코딩되어 있다는 지적을 받았습니다. 회사는 암호를 중앙에 안전하게 저장하고 정기적으로 자동 교체하기를 원하며, 개발·운영 노력은 최소화해야 합니다. 가장 적합한 방법은?</p>
+  <div class="options">
+    <button class="opt">암호를 암호화한 뒤 S3 버킷에 따로 저장해 놓음</button>
+    <button class="opt">Secrets Manager에 저장하고 자동 교체</button>
+    <button class="opt">EC2 사용자 데이터에 암호를 직접 적어 넣어 둠</button>
+    <button class="opt">암호를 환경 변수로 옮기고 매달 수동으로 바꿔 줌</button>
+  </div>
+  <div class="feedback"><p><strong>Secrets Manager</strong>는 비밀을 저장하고 <strong>자동 교체(rotation)</strong>를 설정할 수 있습니다. 교체하면 비밀과 데이터베이스의 자격 증명이 함께 바뀝니다. 대부분의 관리형 비밀은 서비스가 교체를 대신 구성·관리하는 관리형 교체를 쓰며, 그 밖의 비밀은 Lambda 함수로 교체합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html">[14]</a></sup> S3 저장이나 사용자 데이터, 환경 변수는 교체를 직접 구현해야 하고 DB 쪽 암호 변경도 따로 맞춰야 합니다. "자동 교체"라는 단어가 나오면 Secrets Manager부터 떠올리세요.</p>
+  <p class="qtag">도메인 1 · <a href="0009-secrets-and-threat-protection.html">0009 Secrets Manager와 위협 방어</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q10. 회사가 다른 리전에 DR 환경을 준비하려 합니다. 주 리전 장애 시 DR 리전은 서버를 새로 켜는 작업 없이 <em>즉시</em> 트래픽을 받아야 하며(처음에는 축소된 용량이어도 됨), 이 조건을 만족하는 범위에서 비용은 최소여야 합니다. 어떤 전략입니까?</p>
+  <div class="options">
+    <button class="opt">백업·복원: 백업만 두고 장애 시 재배포함</button>
+    <button class="opt">파일럿 라이트: DB만 켜고 서버는 꺼 둠</button>
+    <button class="opt">웜 스탠바이: 축소된 전체 환경을 늘 가동</button>
+    <button class="opt">액티브-액티브: 두 리전이 모두 서비스 중</button>
+  </div>
+  <div class="feedback"><p>AWS DR 백서의 구분이 그대로 정답입니다. <strong>파일럿 라이트</strong>는 DB 같은 핵심 인프라만 켜 두고 애플리케이션 서버는 꺼 두므로 추가 조치 없이는 요청을 처리할 수 없고, <strong>웜 스탠바이</strong>는 축소된 용량이지만 즉시 트래픽을 처리할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[15]</a></sup> 백업·복원은 인프라까지 재배포해야 해서 가장 느리고, 멀티 사이트 액티브-액티브는 가장 복잡하고 비용이 큰 방식이라 "비용 최소"에 어긋납니다. 백서도 두 리전 모두로 사용자 트래픽을 받지 않을 거라면 웜 스탠바이가 더 경제적이라고 설명합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[15]</a></sup></p>
+  <p class="qtag">도메인 2 · <a href="0017-disaster-recovery.html">0017 DR 전략</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q11. 재무팀이 이번 달 AWS 비용이 정해진 금액을 넘을 것으로 <em>예측</em>되면, 실제로 넘기 전에 이메일 알림을 받고 싶어 합니다. 가장 적은 노력으로 요구 사항을 충족하는 방법은?</p>
+  <div class="options">
+    <button class="opt">AWS Budgets에 예측 비용 초과 알림을 설정</button>
+    <button class="opt">Cost Explorer 보고서를 매주 직접 확인함</button>
+    <button class="opt">CloudTrail 로그로 API 호출 내역을 분석</button>
+    <button class="opt">모든 AWS 리소스에 비용 할당 태그를 붙여 관리함</button>
+  </div>
+  <div class="feedback"><p><strong>AWS Budgets</strong>는 비용 예산을 정하고 실제 비용뿐 아니라 <strong>예측(forecasted) 비용</strong>이 임계값을 넘을 때도 이메일이나 SNS 토픽으로 알림을 보낼 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html">[16]</a></sup> Cost Explorer를 매주 보는 것은 사람이 해야 하는 수동 작업이고, CloudTrail은 API 수준의 사용 기록을 남기는 도구이지 비용 알림 도구가 아닙니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[17]</a></sup> 태그는 비용을 분류하는 데 도움이 되지만 그 자체로 알림을 보내지 않습니다.</p>
+  <p class="qtag">도메인 4 · <a href="0026-cost-optimization.html">0026 비용 최적화 종합</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q12. 회사가 AWS Organizations로 40개 멤버 계정을 운영합니다. 규정상 승인된 두 리전 외에서는 어떤 리소스도 만들 수 없어야 하며, 각 계정에서 AdministratorAccess를 가진 관리자도 예외가 없어야 합니다. 가장 운영 오버헤드가 적은 방법은?</p>
+  <div class="options">
+    <button class="opt">계정마다 IAM 사용자 전원에게 Deny 정책을 부착</button>
+    <button class="opt">각 계정의 관리자 역할마다 IAM 권한 경계를 설정함</button>
+    <button class="opt">CloudTrail로 위반을 탐지한 뒤 리소스를 삭제</button>
+    <button class="opt">OU에 승인 리전 외의 작업을 거부하는 SCP를 연결</button>
+  </div>
+  <div class="feedback"><p><strong>SCP</strong>는 조직 안 IAM 사용자·역할이 가질 수 있는 <strong>최대 권한</strong>을 정하는 가드레일입니다. 멤버 계정의 루트 사용자를 포함해 모두에게 적용되고, SCP가 막은 작업은 계정 관리자가 AdministratorAccess를 붙여 줘도 쓸 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[17]</a></sup> 계정마다 Deny 정책이나 권한 경계를 다는 방식은 40개 계정을 일일이 관리해야 하고, 각 계정 관리자가 스스로 떼어낼 수 있습니다. CloudTrail 탐지 후 삭제는 사후 대응이라 "만들 수 없어야 한다"를 충족하지 못합니다. 단, SCP는 <strong>관리 계정</strong>에는 적용되지 않는다는 점도 함께 기억하세요.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[17]</a></sup></p>
+  <p class="qtag">도메인 1 · <a href="0003-organizations-scp-boundaries.html">0003 다중 계정과 권한 가드레일</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,4">
+  <p class="q-title">Q13. 전 세계 사용자가 수 GB 크기의 동영상을 한 리전의 S3 버킷으로 업로드합니다. 먼 대륙의 사용자는 업로드가 느리고, 네트워크 오류가 나면 처음부터 다시 올려야 해서 불만이 많습니다. 업로드 속도와 복원력을 높이는 두 가지 방법은? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">S3 Transfer Acceleration 사용</button>
+    <button class="opt">스토리지 클래스를 One Zone-IA로 바꿔 둠</button>
+    <button class="opt">버킷 버전 관리를 켜서 재업로드 시 실패를 방지함</button>
+    <button class="opt">대륙마다 NAT 게이트웨이를 하나씩 추가로 배치함</button>
+    <button class="opt">멀티파트 업로드로 여러 파트를 나눠 병렬로 전송함</button>
+  </div>
+  <div class="feedback"><p><strong>Transfer Acceleration</strong>은 CloudFront 엣지 로케이션을 거쳐 최적화된 경로로 S3까지 전송해, 전 세계에서 한 버킷으로 올리는 장거리 전송을 빠르게 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/transfer-acceleration.html">[18]</a></sup> <strong>멀티파트 업로드</strong>는 파트를 병렬로 올려 처리량을 높이고, 실패한 파트만 다시 보내면 되므로 처음부터 재시작할 필요가 없습니다. AWS는 100MB 이상 객체에 멀티파트 업로드를 권장합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">[19]</a></sup> 스토리지 클래스는 저장 비용·가용성의 문제이지 업로드 속도와 무관하고, 버전 관리는 덮어쓰기·삭제에 대비하는 기능입니다. NAT 게이트웨이는 VPC 안의 프라이빗 리소스가 밖으로 나가는 장치라 인터넷 사용자의 업로드와 관계가 없습니다.</p>
+  <p class="qtag">도메인 3 · <a href="0018-s3-storage-classes-lifecycle.html">0018 S3 스토리지 클래스와 성능</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q14. 주문이 생성되면 결제, 배송, 분석의 세 독립 시스템이 같은 주문 이벤트를 각각 처리해야 합니다. 한 시스템이 잠시 중단되어도 그 시스템 몫의 메시지는 유실되면 안 되고, 시스템끼리는 서로 영향을 주지 않아야 합니다. 어떤 설계가 가장 적합합니까?</p>
+  <div class="options">
+    <button class="opt">SQS 큐 하나를 세 시스템이 함께 폴링하게 함</button>
+    <button class="opt">SNS 토픽에 SQS 큐 세 개를 각각 구독시킴</button>
+    <button class="opt">SNS 토픽에 각 시스템 HTTP 주소를 구독함</button>
+    <button class="opt">주문 서비스가 세 시스템 API를 순차로 호출함</button>
+  </div>
+  <div class="feedback"><p>전형적인 <strong>팬아웃</strong>입니다. SQS 큐를 SNS 토픽에 구독시키면 토픽에 게시한 메시지가 각 큐로 전달되고, 메시지는 큐에 남아 각 시스템이 나중에 처리할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html">[20]</a></sup> 큐 하나를 셋이 나눠 폴링하면 메시지는 보통 한 소비자만 처리하고 삭제되므로 나머지 둘은 받지 못합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">[3]</a></sup> HTTP 엔드포인트를 직접 구독시키면 구독자가 꺼져 있을 때 유실 위험이 있어, AWS는 SQS와 함께 쓰라고 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">[3]</a></sup> 순차 호출은 강한 결합이라 한 시스템이 멈추면 전체가 멈춥니다.</p>
+  <p class="qtag">도메인 2 · <a href="0014-sqs-sns-eventbridge.html">0014 느슨한 결합</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q15. Application Load Balancer 뒤에서 동작하는 웹 애플리케이션이 쿼리 문자열을 이용한 SQL 인젝션 공격을 받고 있습니다. 회사는 관리형 서비스로 HTTP 요청 내용을 검사해 공격을 차단하려 합니다. 무엇을 해야 합니까?</p>
+  <div class="options">
+    <button class="opt">ALB에 AWS WAF 웹 ACL을 연결함</button>
+    <button class="opt">보안 그룹 인바운드를 443 포트만 허용함</button>
+    <button class="opt">네트워크 ACL로 공격 IP 주소를 차단함</button>
+    <button class="opt">RDS 저장 데이터 암호화를 새로 활성화함</button>
+  </div>
+  <div class="feedback"><p><strong>AWS WAF</strong>는 보호 대상 리소스로 들어오는 HTTP(S) 요청을 검사하는 웹 애플리케이션 방화벽이고, ALB를 보호 대상으로 지원합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html">[21]</a></sup> SQL 인젝션 규칙 문은 쿼리 문자열이나 본문 같은 요청 구성 요소에서 악성 SQL 코드를 찾아냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-sqli-match.html">[22]</a></sup> 보안 그룹과 NACL은 IP·포트 수준에서 동작하므로 정상 포트로 들어오는 요청 <em>내용</em>을 볼 수 없습니다. 저장 데이터 암호화는 디스크 탈취에 대비하는 것이지 SQL 인젝션과 무관합니다.</p>
+  <p class="qtag">도메인 1 · <a href="0009-secrets-and-threat-protection.html">0009 Secrets Manager와 위협 방어</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q16. 실시간 멀티플레이 게임이 UDP로 통신하며 전 세계에 플레이어가 있습니다. 회사는 지연과 지터를 줄이고, 고객사 방화벽 허용 목록에 넣을 고정 IP 주소를 제공하며, 한 리전의 엔드포인트가 비정상이면 다른 리전으로 자동 전환하고 싶어 합니다. 어떤 서비스가 적합합니까?</p>
+  <div class="options">
+    <button class="opt">CloudFront 배포를 게임 서버 앞단에 배치함</button>
+    <button class="opt">Route 53 지연 시간 기반 라우팅 하나만 사용</button>
+    <button class="opt">Global Accelerator 표준 가속기 사용</button>
+    <button class="opt">리전마다 NAT 게이트웨이를 두고 그 IP를 공개함</button>
+  </div>
+  <div class="feedback"><p><strong>Global Accelerator</strong>는 AWS 엣지에서 애니캐스트되는 <strong>고정 IP 주소</strong>를 제공하고, AWS 글로벌 네트워크로 가장 가까운 정상 리전 엔드포인트에 트래픽을 보내며, 상태 변화에 즉시 반응합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/what-is-global-accelerator.html">[23]</a></sup> 리스너는 <strong>TCP와 UDP</strong>를 지원하고,<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/about-listeners.html">[24]</a></sup> 게임처럼 지연에 민감한 애플리케이션이 대표 사용 사례입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">[25]</a></sup> CloudFront는 HTTP로 제공되는 웹 콘텐츠를 엣지에 캐싱해 전달하는 서비스입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[32]</a></sup> Route 53은 고정 IP를 주지 않고, DNS 캐싱 때문에 전환이 늦어질 수 있습니다. AWS DR 백서도 Global Accelerator가 DNS의 캐싱 문제를 피한다고 설명합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[15]</a></sup> NAT 게이트웨이는 인바운드 연결을 받지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html">[12]</a></sup></p>
+  <p class="qtag">도메인 3 · <a href="0025-cloudfront-and-global-accelerator.html">0025 CloudFront vs Global Accelerator</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="2,3">
+  <p class="q-title">Q17. 웹 애플리케이션이 한 가용 영역의 EC2 인스턴스 두 대에서 실행 중입니다. 회사는 AZ 하나가 통째로 장애가 나도 서비스가 유지되고, 비정상 인스턴스는 자동으로 교체되기를 원합니다. 함께 적용해야 할 두 가지는? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">두 인스턴스를 더 큰 인스턴스 유형으로 수직 확장함</button>
+    <button class="opt">기존과 같은 AZ에 인스턴스를 두 대 더 추가해 둠</button>
+    <button class="opt">여러 AZ에 걸친 Auto Scaling 그룹 구성</button>
+    <button class="opt">여러 AZ 인스턴스로 트래픽을 분산하는 ALB 배치</button>
+    <button class="opt">각각의 인스턴스에 탄력적 IP 주소를 하나씩 연결함</button>
+  </div>
+  <div class="feedback"><p><strong>여러 AZ를 쓰는 Auto Scaling 그룹</strong>은 비정상 인스턴스를 감지해 종료하고 새로 띄우며, AZ 하나를 쓸 수 없게 되면 다른 AZ에 인스턴스를 띄워 보충합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/auto-scaling-benefits.html">[26]</a></sup> 여러 AZ에 흩어진 인스턴스로 트래픽을 나누려면 그 앞에 <strong>로드 밸런서</strong>를 둡니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/auto-scaling-benefits.html">[26]</a></sup> 수직 확장이나 같은 AZ에 대수를 늘리는 것은 AZ 장애에 그대로 무너지고, 탄력적 IP는 인스턴스 교체나 트래픽 분산을 해 주지 않습니다.</p>
+  <p class="qtag">도메인 2 · <a href="0012-auto-scaling.html">0012 Auto Scaling</a> · <a href="0011-elastic-load-balancing.html">0011 ELB</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q18. 회사가 AWS Organizations로 20개 계정을 운영합니다. 직원 3,000명은 이미 사내 SAML 2.0 ID 공급자로 로그인합니다. 직원들이 기존 회사 계정으로 여러 AWS 계정에 접근하고, 직무별 권한을 한곳에서 관리하기를 원합니다. 가장 운영 오버헤드가 적은 방법은?</p>
+  <div class="options">
+    <button class="opt">20개 계정마다 직원별로 IAM 사용자를 각각 생성함</button>
+    <button class="opt">직원들에게 각 계정의 루트 사용자 자격 증명을 공유함</button>
+    <button class="opt">20개 계정마다 별도의 SAML 공급자를 각각 구성함</button>
+    <button class="opt">IAM Identity Center와 권한 세트 사용</button>
+  </div>
+  <div class="feedback"><p><strong>IAM Identity Center</strong>는 기존 ID 공급자를 연결해 직원(workforce)이 여러 AWS 계정에 접근하게 하는 AWS의 해법입니다. 한 번만 페더레이션하면 되고, <strong>권한 세트</strong>로 관리자 같은 직무별 권한을 만들어 여러 계정에 배포하고 사용자·그룹에 할당합니다. 권한 세트는 Organizations 관리 계정에 배포하는 조직 인스턴스에서 쓸 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html">[27]</a></sup> 계정마다 SAML 공급자를 구성해도 동작은 하지만 20개 계정을 따로 관리해야 합니다. IAM 사용자 3,000명×계정 수는 관리 불가이고, 루트 자격 증명 공유는 절대 오답입니다.</p>
+  <p class="qtag">도메인 1 · <a href="0003-organizations-scp-boundaries.html">0003 다중 계정과 권한 가드레일</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q19. 회사가 두 리전에서 여러 인스턴스 패밀리의 EC2와 Fargate, Lambda를 꾸준히 사용합니다. 전체 컴퓨팅 사용량은 안정적이지만, 앞으로 1년 안에 인스턴스 패밀리를 바꾸고 일부 워크로드를 다른 리전과 Fargate로 옮길 계획입니다. 가장 비용 효율적인 선택은?</p>
+  <div class="options">
+    <button class="opt">EC2와 Fargate 워크로드를 모두 스팟으로 전환</button>
+    <button class="opt">Compute Savings Plans를 1년 약정함</button>
+    <button class="opt">EC2 Instance Savings Plans 약정</button>
+    <button class="opt">온디맨드 요금을 그대로 두고 매달 사용량을 다시 검토</button>
+  </div>
+  <div class="feedback"><p><strong>Compute Savings Plans</strong>는 인스턴스 패밀리, 크기, 리전, OS, 테넌시와 관계없이 EC2에 자동 적용되고 <strong>Fargate와 Lambda</strong>에도 적용됩니다. c5에서 m5로, 아일랜드에서 런던으로, EC2에서 Fargate로 옮겨도 할인이 유지됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[28]</a></sup> EC2 Instance Savings Plans는 할인율은 더 높을 수 있지만 <strong>특정 리전의 특정 인스턴스 패밀리</strong>에 약정하므로 패밀리·리전 변경 계획과 맞지 않고 Fargate·Lambda도 포함하지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[28]</a></sup> 스팟은 중단 가능성이 있어 안정적 상시 워크로드 전체에는 부적합하고, 온디맨드 유지는 할인을 포기하는 것입니다.</p>
+  <p class="qtag">도메인 4 · <a href="0010-ec2-instances-and-pricing.html">0010 EC2 구매 옵션</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q20. 회사가 웹사이트 클릭스트림을 실시간으로 수집하려 합니다. 실시간 집계 대시보드용 애플리케이션과 S3 보관용 애플리케이션, 두 개가 <em>같은 데이터</em>를 동시에, 서로 독립적으로 읽어야 하며 수집에서 처리까지 지연은 1초 안팎이어야 합니다. 어떤 서비스를 써야 합니까?</p>
+  <div class="options">
+    <button class="opt">Kinesis Data Streams로 수집</button>
+    <button class="opt">SQS 표준 큐로 클릭 이벤트를 모두 수집함</button>
+    <button class="opt">S3에 한 시간 단위로 묶어서 일괄 업로드함</button>
+    <button class="opt">Athena로 S3 원본 로그를 매분 쿼리함</button>
+  </div>
+  <div class="feedback"><p><strong>Kinesis Data Streams</strong>는 대량의 스트리밍 데이터를 실시간으로 수집·처리하며, 레코드를 넣고 꺼내기까지 지연이 보통 1초 미만입니다. 여러 애플리케이션이 같은 스트림을 동시에 독립적으로 소비할 수 있고, AWS 문서의 예시도 바로 "집계는 DynamoDB로, 보관은 S3로"입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">[29]</a></sup> SQS는 처리한 메시지를 삭제하므로 두 애플리케이션이 같은 메시지를 각각 읽는 구조에 맞지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">[3]</a></sup> 시간 단위 일괄 업로드나 매분 쿼리는 실시간이 아닙니다.</p>
+  <p class="qtag">도메인 3 · <a href="0024-data-ingestion-and-analytics.html">0024 데이터 수집·분석</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q21. 글로벌 서비스가 Aurora MySQL을 사용합니다. 리전 전체 장애에 대비해 다른 리전에서 데이터 손실은 몇 초 이내(RPO), 복구는 1분 안팎(RTO)이어야 하고, 평소에는 다른 리전 사용자가 가까운 리전에서 읽기를 처리하기를 원합니다. 무엇을 해야 합니까?</p>
+  <div class="options">
+    <button class="opt">같은 리전 안에 Aurora 복제본을 더 추가함</button>
+    <button class="opt">DB 스냅샷을 매일 밤 다른 리전으로 복사해 둠</button>
+    <button class="opt">Multi-AZ로 전환해 대기 인스턴스를 확보함</button>
+    <button class="opt">Aurora Global Database로 구성</button>
+  </div>
+  <div class="feedback"><p><strong>Aurora Global Database</strong>는 한 기본 리전과 읽기 전용 보조 리전들로 구성되며, 전용 인프라로 보통 <strong>1초 미만</strong>의 지연으로 복제합니다. 보조 리전에서 로컬 지연으로 읽을 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">[30]</a></sup> 리전 장애 시 보조 리전을 <strong>1분 이내</strong>에 읽기/쓰기로 승격할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[15]</a></sup> 같은 리전의 복제본과 Multi-AZ는 리전 장애를 견디지 못하고, 하루 한 번 스냅샷 복사는 RPO가 최대 하루입니다.</p>
+  <p class="qtag">도메인 2 · <a href="0021-rds-and-aurora.html">0021 RDS·Aurora</a> · <a href="0017-disaster-recovery.html">0017 DR 전략</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,2">
+  <p class="q-title">Q22. 정적 웹 콘텐츠를 S3 버킷에 두고 CloudFront로 배포합니다. 사용자가 S3 URL로 직접 접근하지 못하고 반드시 CloudFront를 거치게 하려면 어떤 두 가지를 해야 합니까? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">배포의 S3 오리진에 OAC를 설정해 요청에 서명</button>
+    <button class="opt">버킷을 S3의 정적 웹 사이트 엔드포인트로 구성함</button>
+    <button class="opt">버킷 정책에 CloudFront 서비스 주체 허용</button>
+    <button class="opt">버킷 정책의 Principal을 "*"로 열어 둠</button>
+    <button class="opt">버킷에 설정된 S3 퍼블릭 액세스 차단을 꺼 버림</button>
+  </div>
+  <div class="feedback"><p>CloudFront가 S3 오리진에 인증된 요청을 보내게 하려면 <strong>오리진 액세스 제어(OAC)</strong>를 씁니다. AWS는 레거시 OAI 대신 OAC를 권장합니다. 그리고 <strong>버킷 정책</strong>에서 CloudFront 서비스 주체(<code>cloudfront.amazonaws.com</code>)를 허용하되, <code>AWS:SourceArn</code> 조건으로 그 배포의 요청만 허용합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[31]</a></sup> 웹 사이트 엔드포인트로 구성한 버킷은 사용자 지정 오리진으로 붙여야 해서 OAC를 쓸 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[31]</a></sup> <code>"*"</code> 허용이나 퍼블릭 액세스 차단 해제는 누구나 S3 URL로 들어오게 만드는, 요구 사항과 정반대인 보기입니다.</p>
+  <p class="qtag">도메인 1 · <a href="0025-cloudfront-and-global-accelerator.html">0025 CloudFront</a> · <a href="0002-resource-policies-and-roles.html">0002 리소스 기반 정책</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q23. S3에 수 TB의 로그 파일이 쌓여 있습니다. 분석가들이 가끔 표준 SQL로 즉석(ad hoc) 쿼리를 실행하고 싶어 하며, 회사는 인프라를 관리하지 않고 실행한 쿼리만큼만 비용을 내기를 원합니다. 가장 적합한 방법은?</p>
+  <div class="options">
+    <button class="opt">EC2에 데이터베이스를 직접 설치해 둠</button>
+    <button class="opt">로그를 매일 RDS로 적재한 뒤 쿼리함</button>
+    <button class="opt">Athena로 S3 데이터를 바로 쿼리</button>
+    <button class="opt">EMR 클러스터를 항상 켜 두고 분석함</button>
+  </div>
+  <div class="feedback"><p><strong>Athena</strong>는 S3에 있는 데이터를 표준 SQL로 바로 분석하는 대화형 쿼리 서비스입니다. 서버리스라 설정·관리할 인프라가 없고, 실행한 쿼리에 대해서만 비용을 냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/athena/latest/ug/what-is.html">[33]</a></sup> EC2 직접 설치와 상시 가동 클러스터는 "인프라 관리 안 함"과 "쓴 만큼만"을 둘 다 어기고, RDS 적재는 매일 ETL 작업과 DB 운영이 추가됩니다. "S3 + 가끔 SQL + 서버리스"면 Athena입니다.</p>
+  <p class="qtag">도메인 3 · <a href="0024-data-ingestion-and-analytics.html">0024 데이터 수집·분석</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q24. 주 리전의 ALB에서 서비스하고, 다른 리전에 대기 환경을 준비해 두었습니다. 주 리전이 비정상일 때<em>만</em> DNS 트래픽이 대기 환경으로 자동 전환되어야 합니다. Route 53에서 무엇을 구성해야 합니까?</p>
+  <div class="options">
+    <button class="opt">가중치 라우팅으로 50:50 분산함</button>
+    <button class="opt">상태 확인과 장애 조치 라우팅 정책</button>
+    <button class="opt">지리 위치 라우팅으로 국가별로 분배</button>
+    <button class="opt">단순 라우팅에 두 리전 IP를 등록</button>
+  </div>
+  <div class="feedback"><p><strong>장애 조치(failover) 라우팅</strong>은 액티브-패시브 구성을 위한 정책으로, 기본 리소스가 정상이면 그쪽으로, 비정상이면 다른 리소스로 보냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy-failover.html">[35]</a></sup> 정상 여부는 Route 53 <strong>상태 확인</strong>이 엔드포인트를 감시해 판단합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[15]</a></sup> 가중치 라우팅은 지정한 비율로 여러 리소스에 나누는 것이라 평소에도 대기 환경에 트래픽이 가고, 지리 위치 라우팅은 사용자 위치 기준 분배입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html">[34]</a></sup> 단순 라우팅은 단일 리소스용입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html">[34]</a></sup></p>
+  <p class="qtag">도메인 2 · <a href="0016-regions-azs-route53.html">0016 리전·AZ와 Route 53</a></p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q25. 규정상 금융 기록을 10년간 보관해야 합니다. 감사 때문에 조회하는 일은 1년에 한 번도 안 될 만큼 드물고, 조회가 필요하면 몇 시간 기다려도 됩니다. 가장 저렴한 S3 스토리지 클래스는?</p>
+  <div class="options">
+    <button class="opt">Glacier Deep Archive 스토리지 클래스</button>
+    <button class="opt">Glacier Instant Retrieval 클래스</button>
+    <button class="opt">S3 Standard-Infrequent Access</button>
+    <button class="opt">S3 One Zone-Infrequent Access</button>
+  </div>
+  <div class="feedback"><p><strong>S3 Glacier Deep Archive</strong>는 1년에 한 번 미만 접근하는 장기 보관 데이터를 위한 클래스로, 검색에 몇 시간이 걸리고 아카이브된 객체는 먼저 복원해야 합니다. 최소 보관 기간은 180일입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[36]</a></sup> Glacier Instant Retrieval은 분기 1회 정도 접근하면서 밀리초 조회가 필요한 데이터용이라, 몇 시간 기다려도 되는 이 경우엔 필요 이상입니다. Standard-IA와 One Zone-IA는 월 1회 정도 접근하는 데이터용이고, One Zone-IA는 AZ 하나에만 저장해 AZ 손실에 견디지 못하므로 재생성할 수 없는 규정 기록에 맞지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[36]</a></sup></p>
+  <p class="qtag">도메인 4 · <a href="0018-s3-storage-classes-lifecycle.html">0018 S3 스토리지 클래스</a></p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>채점 후 할 일</h2>
+<p>문항별 도메인은 다음과 같습니다. 틀린 번호에 표시해 보면 약한 도메인이 바로 보입니다.</p>
+<table>
+<tr><th>도메인</th><th>문항</th></tr>
+<tr><td>1. 보안</td><td>Q2, Q5, Q7, Q9, Q12, Q15, Q18, Q22</td></tr>
+<tr><td>2. 복원력</td><td>Q1, Q6, Q10, Q14, Q17, Q21, Q24</td></tr>
+<tr><td>3. 고성능</td><td>Q4, Q8, Q13, Q16, Q20, Q23</td></tr>
+<tr><td>4. 비용 최적화</td><td>Q3, Q11, Q19, Q25</td></tr>
+</table>
+<p>실제 시험은 영역별 합격선 없이 전체 점수로만 합격 여부를 정하는 보상형(compensatory) 채점이고, 결과는 100~1,000점 척도로 나오며 합격선은 720점입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">[1]</a></sup> 척도 점수는 단순 정답률과 같지 않으므로, 이 모의 문제의 정답률을 합격 예측으로 읽지는 마세요. 대신 <strong>어느 도메인에서, 어떤 함정에 걸렸는지</strong>를 보세요.</p>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. 문제 지문에 아래 표현이 나오면 먼저 떠올릴 서비스나 기능은? (1) 일시적 급증, 늦어도 되지만 유실 금지 (2) 하나의 이벤트를 여러 시스템이 각각 처리 (3) 특정 IP 대역 차단 (4) 중단 허용 + 비용 최소 (5) 즉시 트래픽 수용 가능한 축소 DR 환경 (6) 여러 계정 전체에 예외 없는 제한</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) SQS 버퍼링 (2) SNS → 여러 SQS 큐 팬아웃 (3) 네트워크 ACL 거부 규칙(보안 그룹은 허용만) (4) 스팟 인스턴스 (5) 웜 스탠바이(파일럿 라이트는 서버를 켜야 함) (6) Organizations SCP(관리 계정에는 미적용)</p>
+    <p>더 많은 키워드와 근거는 <a href="../reference/exam-strategy.html">시험 전략 시트</a>에 정리했습니다.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 15분)</strong>: <a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">공식 SAA-C03 시험 가이드</a>. 각 도메인 페이지의 과제(Task) 설명을 읽으면서, 이번에 틀린 문항이 어느 과제에 속하는지 찾아보세요. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>복습 방법 (선택)</strong>: 틀린 문항마다 해설 끝의 레슨 링크로 돌아가 그 레슨의 퀴즈를 다시 풀어 보세요. 며칠 간격을 두고 이 모의 문제를 다시 풀 때는 선택지 순서를 외운 것이 아닌지 확인하려고 <em>해설을 먼저 소리 내어 설명</em>한 뒤 답을 고르는 방식을 권합니다.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>점수(25문항 중 몇 개), <strong>틀린 번호</strong>, 그리고 <strong>확신 없이 골랐던 번호</strong>를 알려 주세요. 이 정보로 복습 계획을 짜겠습니다. 오답이 한 도메인에 몰렸다면 그 도메인 레슨을 압축 복습하고, 고르게 흩어져 있다면 비슷한 함정 유형(예: "보안 그룹 거부 규칙", "읽기 전용 복제본으로 자동 장애 조치")을 모아 집중 연습하겠습니다. 해설이 납득되지 않는 문항이 있으면 번호와 함께 질문해 주세요.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03.html">AWS Certification, AWS Certified Solutions Architect - Associate (SAA-C03) exam guide</a></li>
+<li><a href="https://aws.amazon.com/certification/certified-solutions-architect-associate/">AWS Certified Solutions Architect - Associate (exam format)</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/welcome.html">Amazon SQS, What is Amazon Simple Queue Service?</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html">Amazon VPC, Gateway endpoints</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">Amazon EC2, Spot Instances</a></li>
+<li><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DAX.html">Amazon DynamoDB, In-memory acceleration with DynamoDB Accelerator (DAX)</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">Amazon VPC, Infrastructure security (Compare security groups and network ACLs)</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html">Amazon VPC, Control subnet traffic with network access control lists</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">Amazon RDS, Multi-AZ DB instance deployments</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">Amazon RDS, Failing over a Multi-AZ DB instance</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">Amazon RDS, Working with DB instance read replicas</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html">Amazon VPC, NAT gateways</a></li>
+<li><a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">Amazon EFS, What is Amazon Elastic File System?</a></li>
+<li><a href="https://docs.aws.amazon.com/secretsmanager/latest/userguide/rotating-secrets.html">AWS Secrets Manager, Rotate AWS Secrets Manager secrets</a></li>
+<li><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">AWS Whitepaper, Disaster recovery options in the cloud</a></li>
+<li><a href="https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html">AWS Cost Management, Managing your costs with AWS Budgets</a></li>
+<li><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">AWS Organizations, Service control policies (SCPs)</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/transfer-acceleration.html">Amazon S3, Configuring fast, secure file transfers using Amazon S3 Transfer Acceleration</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">Amazon S3, Uploading and copying objects using multipart upload</a></li>
+<li><a href="https://docs.aws.amazon.com/sns/latest/dg/sns-sqs-as-subscriber.html">Amazon SNS, Fanout Amazon SNS notifications to Amazon SQS queues</a></li>
+<li><a href="https://docs.aws.amazon.com/waf/latest/developerguide/waf-chapter.html">AWS WAF Developer Guide, AWS WAF</a></li>
+<li><a href="https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-sqli-match.html">AWS WAF, SQL injection attack rule statement</a></li>
+<li><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/what-is-global-accelerator.html">AWS Global Accelerator, What is AWS Global Accelerator?</a></li>
+<li><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/about-listeners.html">AWS Global Accelerator, Listeners for standard accelerators</a></li>
+<li><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">AWS Global Accelerator, Understanding use cases</a></li>
+<li><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/auto-scaling-benefits.html">Amazon EC2 Auto Scaling, Auto Scaling benefits for application architecture</a></li>
+<li><a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html">AWS IAM Identity Center, What is IAM Identity Center?</a></li>
+<li><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">Savings Plans, Savings Plans types</a></li>
+<li><a href="https://docs.aws.amazon.com/streams/latest/dev/introduction.html">Amazon Kinesis Data Streams, What is Amazon Kinesis Data Streams?</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">Amazon Aurora, Using Amazon Aurora Global Database</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">Amazon CloudFront, Restrict access to an Amazon S3 origin</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">Amazon CloudFront, What is Amazon CloudFront?</a></li>
+<li><a href="https://docs.aws.amazon.com/athena/latest/ug/what-is.html">Amazon Athena, What is Amazon Athena?</a></li>
+<li><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html">Amazon Route 53, Choosing a routing policy</a></li>
+<li><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy-failover.html">Amazon Route 53, Failover routing</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">Amazon S3, Understanding and managing Amazon S3 storage classes</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0026-cost-optimization.html">← 0026 비용 최적화 종합</a></span>
+  <span><a href="../index.html">목록으로 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

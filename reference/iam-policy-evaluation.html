@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IAM 정책 평가</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">레퍼런스 · IAM</p>
+<h1>IAM 정책 평가 치트시트</h1>
+<p class="lede">요청 하나가 허용되는지 판정할 때 펼쳐 보는 한 장. 레슨이 늘어날 때마다 단계를 추가합니다.</p>
+
+<h2>판정 규칙 (한 계정, 자격 증명 기반 정책)</h2>
+<ol class="rules">
+  <li><strong>기본값은 거부</strong> — 허용이 없으면 암묵적 거부 (루트 사용자 제외)</li>
+  <li><strong>일치하는 Allow → 허용</strong> — 사용자 직접 연결 정책과 그룹 정책을 모두 합쳐서 봄</li>
+  <li><strong>일치하는 Deny → 거부</strong> — 어떤 Allow보다도 우선</li>
+</ol>
+<p><strong>요령</strong>: Deny부터 찾는다 → 없으면 Allow를 찾는다 → 없으면 암묵적 거부.</p>
+
+<h2>정책이 두 장일 때 (자격 증명 기반 + 리소스 기반)</h2>
+<table>
+<tr><th>상황</th><th>허용 조건</th></tr>
+<tr><td><strong>같은 계정</strong></td><td>둘 중 <strong>하나만</strong> Allow해도 허용 (합집합)</td></tr>
+<tr><td>└ 예외</td><td><strong>역할 신뢰 정책 · KMS 키 정책</strong>은 그 정책 자체가 명시적으로 허용해야 함</td></tr>
+<tr><td><strong>다른 계정</strong></td><td>요청자 계정의 자격 증명 기반 정책 <strong>그리고</strong> 리소스 계정의 리소스 기반 정책이 모두 Allow (교집합)</td></tr>
+<tr><td>어디서든</td><td>명시적 Deny가 하나라도 일치하면 거부</td></tr>
+</table>
+
+<h2>역할</h2>
+<table>
+<tr><th></th><th>신뢰 정책</th><th>권한 정책</th></tr>
+<tr><td>질문</td><td>누가 맡을 수 있나</td><td>맡은 뒤 무엇을 할 수 있나</td></tr>
+<tr><td>종류</td><td>리소스 기반 (Principal 필수)</td><td>자격 증명 기반</td></tr>
+</table>
+<ul>
+  <li>역할을 맡으면 (<code>sts:AssumeRole</code>) <strong>임시 자격 증명</strong>을 받는다. 원래 사용자 권한은 <strong>중지</strong>된다.</li>
+  <li>교차 계정 역할 = 계정 B 신뢰 정책에 계정 A + 계정 A 사용자에게 역할 ARN에 대한 <code>sts:AssumeRole</code>.</li>
+  <li>EC2 앱 → <strong>인스턴스 프로파일</strong>로 역할 연결 (인스턴스당 역할 1개). 액세스 키 저장은 오답.</li>
+</ul>
+
+<h2>Principal</h2>
+<table>
+<tr><td><code>…:user/x</code>, <code>…:role/x</code></td><td>그 사용자 / 역할</td></tr>
+<tr><td><code>arn:aws:iam::ID:root</code> 또는 <code>"ID"</code></td><td>계정 전체에 위임 (루트 사용자만이 아님)</td></tr>
+<tr><td><code>"*"</code></td><td>모든 주체. Allow면 익명 포함</td></tr>
+<tr><td>IAM 그룹</td><td><strong>불가</strong>. 그룹 중첩도 불가</td></tr>
+</table>
+
+<h2>Statement가 "일치"하는 조건</h2>
+<p>Action <strong>그리고</strong> Resource가 둘 다 요청과 맞아야 한다.</p>
+
+<h2>정책 요소</h2>
+<table>
+<tr><th>요소</th><th>핵심</th></tr>
+<tr><td><code>Version</code></td><td>항상 <code>"2012-10-17"</code>. <code>2008-10-17</code>은 사용 금지 (정책 변수가 동작하지 않음)</td></tr>
+<tr><td><code>Effect</code></td><td><code>Allow</code> | <code>Deny</code></td></tr>
+<tr><td><code>Action</code></td><td><code>서비스:API</code>. 와일드카드 <code>*</code>(여러 글자), <code>?</code>(한 글자). 대소문자 구분 안 함. <code>NotAction</code>과 동시 사용 불가</td></tr>
+<tr><td><code>Resource</code></td><td>ARN. <code>NotResource</code>와 동시 사용 불가</td></tr>
+<tr><td><code>Principal</code></td><td>자격 증명 기반 정책에는 <strong>쓸 수 없음</strong>. 리소스 기반 정책에는 <strong>필수</strong></td></tr>
+<tr><td><code>Condition</code></td><td>선택. 조건을 추가해 접근을 더 좁힘</td></tr>
+</table>
+
+<h2>자주 쓰는 패턴</h2>
+<table>
+<tr><th>패턴</th><th>효과</th></tr>
+<tr><td><code>"Action": "ec2:Describe*"</code></td><td>EC2 읽기 전용</td></tr>
+<tr><td>Allow <code>bucket/*</code> + Deny <code>bucket/secret/*</code></td><td>버킷은 열고 민감한 접두사만 차단</td></tr>
+<tr><td>Allow 정책에 특정 테이블 ARN 지정</td><td>최소 권한: 필요한 리소스만 허용</td></tr>
+</table>
+
+<h2>용어</h2>
+<table>
+<tr><td><strong>암묵적 거부</strong></td><td>허용한 문장이 하나도 없어서 거부됨. Allow를 추가하면 풀림</td></tr>
+<tr><td><strong>명시적 거부</strong></td><td>일치하는 Deny 문장 때문에 거부됨. Allow를 추가해도 풀리지 않음</td></tr>
+</table>
+
+<h2>Organizations · SCP · 권한 경계</h2>
+<ol class="rules" style="counter-reset: rule 6">
+  <li><strong>SCP는 아무것도 허용하지 않는다</strong> — 회원 계정 주체의 최대 권한(상한선)만 정함. 실제 권한은 IAM 정책으로 따로 부여</li>
+  <li><strong>SCP Allow는 루트→OU→계정 모든 단계에, Deny는 한 단계에만 있어도</strong> — 기본으로 <code>FullAWSAccess</code>가 모든 단계에 붙음</li>
+  <li><strong>권한 경계도 상한선, 유효 권한은 교집합</strong> — SCP까지 있으면 SCP ∩ 경계 ∩ 자격 증명 기반 정책</li>
+</ol>
+<table>
+<tr><th>SCP 적용 대상</th><th></th></tr>
+<tr><td>회원 계정의 IAM 사용자·역할, <strong>회원 계정 루트 사용자</strong></td><td>적용됨</td></tr>
+<tr><td><strong>관리 계정</strong>, 서비스 연결 역할, 조직 밖 주체</td><td>적용 안 됨</td></tr>
+</table>
+<p><strong>평가 순서</strong>: 명시적 Deny(모든 정책) → RCP → SCP → 리소스 기반 → 자격 증명 기반 → 권한 경계 → 세션 정책.</p>
+<table>
+<tr><th></th><th>SCP</th><th>권한 경계</th></tr>
+<tr><td>붙는 곳</td><td>루트·OU·계정</td><td>IAM 사용자·역할 (그룹 불가)</td></tr>
+<tr><td>대표 용도</td><td>"관리자도 못 하게", 리전·서비스 제한</td><td>위임: <code>iam:PermissionsBoundary</code> 조건으로 경계 강제</td></tr>
+</table>
+<table>
+<tr><th>사람·앱의 로그인</th><th>정답</th></tr>
+<tr><td>직원이 여러 계정에 (기존 AD/SAML IdP)</td><td><strong>IAM Identity Center</strong> + 권한 세트 (각 계정에 역할 생성, 세션 기본 1시간·최대 12시간)</td></tr>
+<tr><td>단일 계정, 외부 IdP / GitHub Actions</td><td>IAM 페더레이션 (SAML 2.0 / OIDC)</td></tr>
+<tr><td>모바일·웹 앱 최종 사용자</td><td>Amazon Cognito</td></tr>
+<tr><td>다중 계정 환경을 모범 사례로 빠르게</td><td>Control Tower (랜딩 존, 컨트롤, Account Factory)</td></tr>
+</table>
+
+<p class="muted" style="font-size:.85rem">출처: <a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">SCP</a> · <a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps_evaluation.html">SCP 평가</a> · <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">권한 경계</a> · <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers.html">페더레이션</a> · <a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetsconcept.html">권한 세트</a> · <a href="https://docs.aws.amazon.com/controltower/latest/userguide/what-is-control-tower.html">Control Tower</a> · 레슨 <a href="../lessons/0003-organizations-scp-boundaries.html">0003</a></p>
+
+<p class="muted" style="font-size:.85rem">출처: <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-denyallow.html">IAM 정책 평가 로직</a> · <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements.html">IAM 정책 요소 레퍼런스</a> · <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic-cross-account.html">교차 계정 평가</a> · <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html">IAM 역할</a> · 레슨 <a href="../lessons/0001-iam-policy-evaluation.html">0001</a>, <a href="../lessons/0002-resource-policies-and-roles.html">0002</a></p>
+</main>
+</body>
+</html>

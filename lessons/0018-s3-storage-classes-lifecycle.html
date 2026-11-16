@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 스토리지 클래스와 수명 주기</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0018 · 도메인 3 고성능 (24%) · Task 3.1, 4.1, 1.3</p>
+<h1>S3를 싸고 안전하고 빠르게:<br>스토리지 클래스, 수명 주기, 버전 관리, 복제, 성능</h1>
+<p class="lede">S3 문제는 대부분 "접근 빈도 · 복구 시간 · 최소 보관 기간 · AZ 개수" 네 가지로 풀립니다. 오늘은 이 네 축으로 클래스를 고르고, 데이터를 지키는 기능(버전 관리, 복제, Object Lock)과 성능 기능을 시나리오에 연결합니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/storage.html">스토리지 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>왜 이것부터인가</h2>
+<p><strong>시험에서</strong>: "가장 비용 효율적인 스토리지 클래스는?"은 Task 4.1의 단골이고, 보기 네 개가 모두 S3 클래스인 경우가 많습니다.<br>
+<strong>실무에서</strong>: 로그·백업 버킷에 수명 주기 규칙 하나만 걸어도 저장 비용이 크게 달라지고, 버전 관리를 켜 두지 않으면 실수로 지운 객체를 되살릴 수 없습니다.</p>
+
+<h2>스토리지 클래스: 네 축으로 비교</h2>
+<p>객체마다 스토리지 클래스가 있고, 지정하지 않으면 S3 Standard입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[1]</a></sup> 아래 표는 AWS 비교표를 시험용으로 줄인 것입니다. 내구성은 모두 99.999999999%(11 9s)로 같으니 <em>내구성으로는 고를 수 없다</em>는 점부터 기억하세요.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html#sc-compare">[1]</a></sup></p>
+<table>
+<tr><th>클래스</th><th>설계 대상 접근 빈도</th><th>첫 바이트</th><th>AZ</th><th>최소 보관</th><th>비고</th></tr>
+<tr><td><strong>Standard</strong></td><td>월 1회 초과</td><td>밀리초</td><td>≥3</td><td>없음</td><td>기본값. 검색 요금 없음</td></tr>
+<tr><td><strong>Intelligent-Tiering</strong></td><td>모름 · 변함</td><td>밀리초<sup>*</sup></td><td>≥3</td><td>없음</td><td>객체당 모니터링 요금, <strong>검색 요금 없음</strong>. 128KB 미만은 모니터링 안 함</td></tr>
+<tr><td><strong>Standard-IA</strong></td><td>월 1회</td><td>밀리초</td><td>≥3</td><td>30일</td><td>GB당 검색 요금, 최소 과금 128KB</td></tr>
+<tr><td><strong>One Zone-IA</strong></td><td>월 1회, <em>재생성 가능</em></td><td>밀리초</td><td><strong>1</strong></td><td>30일</td><td>AZ 손실 시 데이터 손실 가능</td></tr>
+<tr><td><strong>Express One Zone</strong></td><td>지연에 민감한 고빈도</td><td>한 자릿수 밀리초</td><td><strong>1</strong> (선택)</td><td>없음</td><td>디렉터리 버킷 사용, Standard 대비 최대 10배 빠른 접근</td></tr>
+<tr><td><strong>Glacier Instant Retrieval</strong></td><td>분기 1회</td><td>밀리초</td><td>≥3</td><td>90일</td><td>아카이브인데 즉시 읽힘</td></tr>
+<tr><td><strong>Glacier Flexible Retrieval</strong></td><td>연 1회</td><td>분~시간 (복원 필요)</td><td>≥3</td><td>90일</td><td>먼저 <code>RestoreObject</code></td></tr>
+<tr><td><strong>Glacier Deep Archive</strong></td><td>연 1회 미만</td><td>시간 (복원 필요)</td><td>≥3</td><td>180일</td><td>가장 저렴한 아카이브</td></tr>
+</table>
+<p><small>* Intelligent-Tiering의 선택형 Archive Access / Deep Archive Access 계층으로 내려간 객체는 복원이 필요합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html#sc-dynamic-data-access">[1]</a></sup> 출처: 위 표 전체는 [1]의 비교표, Express One Zone 설명도 [1].</small></p>
+
+<p><strong>Intelligent-Tiering 동작</strong>: 업로드된 객체는 Frequent Access 계층에 있다가, 30일 연속 접근이 없으면 Infrequent Access, 90일이면 Archive Instant Access 계층으로 자동 이동합니다. 다시 읽히면 비용 걱정 없이 쓰면 됩니다. 검색 요금이 없기 때문입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html#sc-dynamic-data-access">[1]</a></sup></p>
+<p><strong>One Zone-IA의 정체성</strong>: AWS 권장 문구 그대로 "AZ가 실패해도 다시 만들 수 있는 데이터" 또는 CRR로 만든 복제본용입니다. 다시 만들 수 없는 원본은 Standard-IA에 둡니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html#sc-infreq-data-access">[1]</a></sup></p>
+
+<h3>Glacier 복원 시간 (시험이 숫자로 묻는 부분)</h3>
+<table>
+<tr><th></th><th>Expedited</th><th>Standard</th><th>Bulk</th></tr>
+<tr><td>Glacier Flexible Retrieval</td><td>1–5분</td><td>3–5시간</td><td>5–12시간</td></tr>
+<tr><td>Glacier Deep Archive</td><td><strong>없음</strong></td><td>12시간 이내</td><td>48시간 이내</td></tr>
+</table>
+<p>Deep Archive에는 Expedited가 없다는 점이 함정으로 자주 쓰입니다. "몇 분 안에 꺼내야 한다"는 요구가 있으면 Deep Archive는 탈락입니다. 복원하면 임시 사본이 생기며, 그동안 아카이브 요금과 임시 사본의 Standard 요금을 함께 냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html">[3]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html">[2]</a></sup></p>
+
+<h2>수명 주기: 자동으로 내려보내고 지우기</h2>
+<p>수명 주기 규칙의 동작은 두 가지입니다. <strong>전환(Transition)</strong>은 더 싼 클래스로 옮기고, <strong>만료(Expiration)</strong>는 삭제합니다. 규칙은 새 객체뿐 아니라 <em>기존 객체에도</em> 적용됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html">[4]</a></sup> 전환은 아래로만 흐르는 "폭포(waterfall)" 모델입니다.</p>
+
+<figure>
+<svg viewBox="0 0 560 210" role="img" aria-label="S3 수명 주기 전환 폭포: Standard에서 Standard-IA, Intelligent-Tiering, One Zone-IA, Glacier Instant Retrieval, Glacier Flexible Retrieval, Glacier Deep Archive 방향으로만 전환" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah18" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <rect x="10" y="12" width="120" height="34" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="70" y="34" text-anchor="middle" font-size="12" fill="var(--fg)">Standard</text>
+  <rect x="80" y="62" width="120" height="34" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="140" y="84" text-anchor="middle" font-size="12" fill="var(--fg)">Standard-IA</text>
+  <rect x="150" y="112" width="130" height="34" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="215" y="128" text-anchor="middle" font-size="11" fill="var(--fg)">Intelligent-Tiering</text>
+  <text x="215" y="141" text-anchor="middle" font-size="11" fill="var(--fg)">/ One Zone-IA</text>
+  <rect x="250" y="62" width="140" height="34" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="320" y="84" text-anchor="middle" font-size="12" fill="var(--fg)">Glacier Instant</text>
+  <rect x="320" y="112" width="140" height="34" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="390" y="134" text-anchor="middle" font-size="12" fill="var(--fg)">Glacier Flexible</text>
+  <rect x="400" y="162" width="150" height="34" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/>
+  <text x="475" y="184" text-anchor="middle" font-size="12" fill="var(--fg)">Glacier Deep Archive</text>
+  <line x1="70" y1="46" x2="100" y2="60" stroke="var(--muted)" marker-end="url(#ah18)"/>
+  <line x1="150" y1="96" x2="185" y2="110" stroke="var(--muted)" marker-end="url(#ah18)"/>
+  <line x1="200" y1="79" x2="246" y2="79" stroke="var(--muted)" marker-end="url(#ah18)"/>
+  <line x1="280" y1="129" x2="316" y2="129" stroke="var(--muted)" marker-end="url(#ah18)"/>
+  <line x1="350" y1="96" x2="375" y2="110" stroke="var(--muted)" marker-end="url(#ah18)"/>
+  <line x1="430" y1="146" x2="455" y2="160" stroke="var(--muted)" marker-end="url(#ah18)"/>
+  <text x="20" y="190" font-size="11" fill="var(--muted)">아래(더 차가운 쪽)로만 전환 · Deep Archive에서 위로는 수명 주기로 불가</text>
+  <text x="20" y="205" font-size="11" fill="var(--muted)">(되돌리려면 복원 후 복사)</text>
+</svg>
+<figcaption>단순화한 그림입니다. 정확한 허용 전환 목록은 [2]를 보세요.</figcaption>
+</figure>
+
+<ul>
+  <li><strong>Glacier Flexible Retrieval → Deep Archive만 가능</strong>, Deep Archive에서는 수명 주기로 어디로도 못 갑니다. 다른 클래스로 바꾸려면 복원한 뒤 복사해 덮어써야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html">[2]</a></sup></li>
+  <li><strong>128KB 미만 객체는 기본적으로 전환되지 않습니다.</strong> 객체마다 전환 요청 요금이 붙어 작은 객체는 손해일 수 있기 때문입니다. 필요하면 객체 크기 필터로 바꿉니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html">[2]</a></sup></li>
+  <li><strong>최소 보관 기간 전에 옮기거나 지우면 남은 기간 요금을 냅니다.</strong> 예: IA 클래스에서 30일 전에 삭제하면 30일치가 청구됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html#sc-infreq-data-access">[1]</a></sup></li>
+  <li>멀티파트 업로드가 중단되면 조각이 계속 과금되므로 <code>AbortIncompleteMultipartUpload</code> 수명 주기 동작으로 정리하라고 AWS가 권장합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">[14]</a></sup></li>
+</ul>
+<p><small>참고: AWS 스토리지 선택 가이드(2026-10 갱신)는 S3가 Standard-IA·One Zone-IA로의 전환에 더 이상 30일 최소 기간을 적용하지 않는다고 밝힙니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">[16]</a></sup> 문제 은행이 예전 기준으로 쓰였을 수 있으니, 보기에 "30일 후 IA로 전환"이 나와도 그 자체를 오답 근거로 삼지는 마세요.</small></p>
+
+<h2>데이터 보호: 버전 관리, 복제, Object Lock</h2>
+<h3>버전 관리</h3>
+<p>버킷 상태는 비버전(기본) · 활성화 · 일시 중지 세 가지이며, <strong>한 번 활성화하면 비버전으로 되돌릴 수 없고 일시 중지만 가능</strong>합니다. 버전 ID 없이 삭제하면 객체가 지워지는 대신 <strong>삭제 마커</strong>가 현재 버전이 되므로, 이전 버전을 되살릴 수 있습니다. 버전마다 전체 객체로 과금됩니다(차분이 아님).<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html">[5]</a></sup> 버전 관리 버킷에 만료 규칙을 쓸 때는 이전(noncurrent) 버전 만료 규칙도 함께 넣어야 예전처럼 영구 삭제됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html#versioning-lifecycle">[5]</a></sup></p>
+<p><strong>MFA Delete</strong>는 버전 영구 삭제와 버전 관리 상태 변경에 MFA 코드를 요구합니다. 버킷 소유자(루트 계정)만 켤 수 있고, 콘솔이 아니라 CLI/API로 설정합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/MultiFactorAuthenticationDelete.html">[6]</a></sup></p>
+
+<h3>복제: CRR과 SRR</h3>
+<table>
+<tr><th></th><th>CRR (Cross-Region)</th><th>SRR (Same-Region)</th></tr>
+<tr><td>대상</td><td>다른 리전의 버킷</td><td>같은 리전의 버킷</td></tr>
+<tr><td>대표 용도</td><td>더 먼 거리 보관이 필요한 규정 준수, 사용자 가까이 두어 지연 단축</td><td>여러 버킷의 로그 집계, 운영·테스트 계정 간 복제, 데이터가 국가를 벗어나면 안 되는 주권 요건</td></tr>
+</table>
+<p><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html">[7]</a></sup> 반드시 기억할 규칙:</p>
+<ul>
+  <li><strong>원본과 대상 버킷 모두 버전 관리가 켜져 있어야</strong> 하고, S3가 대신 복제할 수 있도록 권한(IAM 역할)을 줘야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-requirements.html">[8]</a></sup></li>
+  <li><strong>교차 계정</strong>이면 대상 버킷 소유자가 <em>버킷 정책</em>으로 원본 버킷 소유자에게 복제 권한을 줘야 합니다(0002의 교집합 규칙과 같은 구조). 대상 버킷은 Requester Pays일 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-requirements.html">[8]</a></sup></li>
+  <li>라이브 복제는 <strong>설정 이후 새 객체만</strong> 복제합니다. 기존 객체는 <strong>S3 Batch Replication</strong>으로 복제합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html">[7]</a></sup></li>
+  <li>"예측 가능한 복제 시간"이 요구되면 <strong>S3 Replication Time Control</strong>: 새 객체의 99.99%를 15분 안에 복제(SLA).<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html">[7]</a></sup></li>
+  <li>버전 ID를 지정한 삭제는 대상에 복제되지 않습니다(악의적 삭제 방지). 삭제 마커는 최신 설정 기준 기본적으로 복제되지 않으며 옵션으로 켤 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-what-is-isnot-replicated.html">[9]</a></sup></li>
+</ul>
+
+<h3>Object Lock (WORM)</h3>
+<p>Object Lock은 WORM(write-once-read-many) 모델로 객체 버전의 삭제·덮어쓰기를 막으며, <strong>버전 관리가 켜진 버킷에서만</strong> 동작합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html">[10]</a></sup></p>
+<table>
+<tr><th></th><th>거버넌스 모드</th><th>규정 준수(Compliance) 모드</th><th>법적 보존(Legal hold)</th></tr>
+<tr><td>누가 풀 수 있나</td><td><code>s3:BypassGovernanceRetention</code> 권한 + 우회 헤더가 있는 사용자</td><td><strong>아무도 못 함(루트 포함)</strong>. 기간 단축·모드 변경 불가</td><td><code>s3:PutObjectLegalHold</code> 권한이 있는 사용자가 제거할 때까지</td></tr>
+<tr><td>기간</td><td>보존 기간</td><td>보존 기간</td><td>만료일 없음</td></tr>
+<tr><td>쓰임</td><td>대부분은 막되 일부 관리자는 예외, 규정 준수 모드 전 테스트</td><td>규제 기록 보관</td><td>감사·소송처럼 기간을 모를 때</td></tr>
+</table>
+<p><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html">[10]</a></sup></p>
+
+<h2>공유와 비용 분담</h2>
+<ul>
+  <li><strong>미리 서명된 URL(presigned URL)</strong>: 버킷 정책을 바꾸지 않고 객체에 <em>기한부</em> 다운로드·업로드 권한을 줍니다. URL은 만든 주체의 권한으로 동작하고, IAM 사용자 자격 증명(SigV4)으로 만들면 최대 7일, 임시 자격 증명으로 만들면 그 자격 증명이 끝날 때 함께 만료됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html">[11]</a></sup></li>
+  <li><strong>Requester Pays</strong>: 요청과 다운로드 비용을 요청자가 내고, 저장 비용은 항상 버킷 소유자가 냅니다. 익명 접근은 허용되지 않으며 요청자는 <code>x-amz-request-payer</code> 헤더로 비용 부담에 동의해야 합니다. 대용량 공개 데이터셋 공유에 씁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/RequesterPaysBuckets.html">[12]</a></sup></li>
+</ul>
+
+<h2>성능</h2>
+<ul>
+  <li><strong>접두사(prefix)당</strong> 초당 최소 3,500 PUT/COPY/POST/DELETE, 5,500 GET/HEAD를 처리하며 버킷의 접두사 수에는 제한이 없습니다. 접두사를 10개로 나눠 병렬로 읽으면 읽기를 초당 55,000까지 늘릴 수 있습니다. 확장 중에는 503(Slow Down)이 잠시 보일 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html">[13]</a></sup></li>
+  <li><strong>멀티파트 업로드</strong>: 100MB 이상 객체에 권장. 조각을 병렬 업로드해 처리량을 높이고, 실패한 조각만 재전송하면 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">[14]</a></sup></li>
+  <li><strong>Transfer Acceleration</strong>: CloudFront 엣지 로케이션을 거쳐 최적화된 경로로 S3에 들어갑니다. "전 세계 고객이 중앙 버킷 하나로 업로드", "대륙 간 GB~TB 정기 전송"이 신호입니다. 버킷 이름에 마침표(.)가 없어야 하고 <code>bucket.s3-accelerate.amazonaws.com</code> 엔드포인트를 쓰며, 추가 요금이 있을 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/transfer-acceleration.html">[15]</a></sup></li>
+</ul>
+
+<div class="callout">
+<p class="label">시험 단골: 키워드 → 답</p>
+<p><strong>접근 패턴을 모름 / 예측 불가</strong> → Intelligent-Tiering · <strong>다시 만들 수 있음 + 드물게 접근</strong> → One Zone-IA · <strong>드물지만 밀리초로 즉시</strong> → Glacier Instant Retrieval(분기 1회) 또는 Standard-IA(월 1회) · <strong>연 1회 미만 + 12~48시간 허용 + 최저가</strong> → Glacier Deep Archive · <strong>몇 분 안에 아카이브 복원</strong> → Glacier Flexible Retrieval의 Expedited.</p>
+<p><strong>실수로 삭제·덮어쓰기 방지</strong> → 버전 관리(+MFA Delete) · <strong>루트도 못 지우게</strong> → Object Lock 규정 준수 모드 · <strong>다른 리전에 사본, 15분 SLA</strong> → CRR + RTC · <strong>기존 객체까지 복제</strong> → Batch Replication · <strong>외부인에게 임시 접근</strong> → 미리 서명된 URL · <strong>원거리 대용량 업로드 느림</strong> → Transfer Acceleration + 멀티파트.</p>
+</div>
+
+<h2>연습</h2>
+<p>기억으로 푸세요. 막히면 위의 네 축(접근 빈도, 복구 시간, 최소 보관 기간, AZ 개수)으로 보기를 하나씩 지워 보세요.</p>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 사용자 업로드 사진을 저장합니다. 어떤 사진은 몇 달간 매일 조회되고, 어떤 사진은 업로드 후 거의 안 열립니다. 접근 패턴을 미리 알 수 없고, 운영팀이 규칙을 관리할 여력도 없습니다. 가장 비용 효율적인 클래스는?</p>
+  <div class="options">
+    <button class="opt">S3 One Zone-IA 스토리지 클래스</button>
+    <button class="opt">S3 Express One Zone 클래스</button>
+    <button class="opt">Intelligent-Tiering 클래스</button>
+    <button class="opt">S3 Glacier Deep Archive</button>
+  </div>
+  <div class="feedback"><p>"패턴을 모름 + 관리 부담 없이"는 Intelligent-Tiering의 정의입니다. 객체 단위로 접근이 없으면 30일, 90일 기준으로 자동으로 내려가고 검색 요금이 없습니다. One Zone-IA는 자주 읽히는 사진에서 GB당 검색 요금이 쌓이고 AZ 하나에만 저장됩니다. Express One Zone은 지연에 민감한 워크로드용 고성능 클래스라 비용 최적화 답이 아니고, Deep Archive는 복원에 몇 시간이 걸려 매일 조회되는 사진을 보여 줄 수 없습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. 원본 이미지로부터 언제든 다시 만들 수 있는 썸네일을 보관합니다. 한 달에 한 번 정도 읽히며, 읽을 때는 밀리초로 응답해야 합니다. 가장 저렴한 클래스는?</p>
+  <div class="options">
+    <button class="opt">S3 One Zone-IA 스토리지 클래스</button>
+    <button class="opt">S3 Standard-IA 스토리지 클래스</button>
+    <button class="opt">S3 Standard 기본 스토리지 클래스</button>
+    <button class="opt">S3 Glacier Deep Archive</button>
+  </div>
+  <div class="feedback"><p>"재생성 가능"은 One Zone-IA의 신호입니다. AZ 하나에만 저장해 Standard-IA보다 싸고, AZ를 잃어도 다시 만들면 됩니다. Standard-IA도 조건은 맞지만 더 비쌉니다. Deep Archive는 복원에 시간이 걸려 밀리초 요구를 만족하지 못합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q3. 규정상 금융 기록을 10년 보관해야 합니다. 감사 때 1년에 한 번도 안 열 수도 있고, 요청이 오면 48시간 안에만 제출하면 됩니다. 가장 비용 효율적인 방법은?</p>
+  <div class="options">
+    <button class="opt">Glacier Instant로 전환 규칙을 설정</button>
+    <button class="opt">Standard-IA에 두고 버전 관리를 활성화</button>
+    <button class="opt">Glacier Flexible, 신속 복원 사용</button>
+    <button class="opt">Deep Archive로 수명 주기 전환을 설정</button>
+  </div>
+  <div class="feedback"><p>연 1회 미만 접근, 48시간 허용이면 Deep Archive(Bulk 48시간 이내, Standard 12시간 이내)가 가장 쌉니다. Flexible Retrieval의 Expedited는 몇 분이 필요할 때 쓰는 비싼 옵션이라 이 요구에는 과합니다. Instant Retrieval은 밀리초 접근 비용을 낼 이유가 없습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. 규제 기관이 거래 기록을 7년간 어떤 사용자도, 루트 사용자조차 삭제하거나 덮어쓰지 못하게 하라고 요구합니다. 무엇을 써야 합니까?</p>
+  <div class="options">
+    <button class="opt">Object Lock의 거버넌스 모드와 보존 기간</button>
+    <button class="opt">Object Lock 규정 준수 모드와 보존 기간</button>
+    <button class="opt">버전 관리와 MFA Delete를 함께 활성화한다</button>
+    <button class="opt">삭제를 모두 Deny하는 버킷 정책을 미리 추가함</button>
+  </div>
+  <div class="feedback"><p>"루트 포함 누구도"는 규정 준수 모드입니다. 거버넌스 모드는 <code>s3:BypassGovernanceRetention</code> 권한이 있으면 풀립니다. MFA Delete는 삭제를 어렵게 할 뿐 루트 소유자는 MFA로 삭제할 수 있고, 버킷 정책은 정책을 수정할 권한이 있는 사람이 바꿀 수 있습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1,3">
+  <p class="q-title">Q5. us-east-1 버킷의 새 객체를 eu-west-1 버킷으로 자동 복제(CRR)하려 합니다. 반드시 필요한 것은? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">Transfer Acceleration 활성화</button>
+    <button class="opt">원본과 대상 버킷 모두에서 버전 관리를 활성화</button>
+    <button class="opt">대상 버킷을 Requester Pays로 구성</button>
+    <button class="opt">S3가 복제할 수 있게 IAM 역할 권한 부여</button>
+  </div>
+  <div class="feedback"><p>복제의 필수 조건은 양쪽 버전 관리와 S3에 복제 권한을 주는 것입니다. Transfer Acceleration은 클라이언트 업로드 가속 기능이라 복제와 관계없고, 교차 계정 복제에서는 대상 버킷이 오히려 Requester Pays일 수 <em>없습니다</em>.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q6. (0002 복습) 계정 A의 버킷에서 계정 B의 버킷으로 복제를 설정했는데 복제가 실패합니다. 계정 A 쪽 복제 역할과 버전 관리는 정상입니다. 무엇이 빠졌을 가능성이 가장 큽니까?</p>
+  <div class="options">
+    <button class="opt">계정 A 버킷에 Object Lock 설정</button>
+    <button class="opt">계정 B 버킷에서 수명 주기 규칙을 추가함</button>
+    <button class="opt">계정 B 버킷 정책에서 복제 권한을 허용함</button>
+    <button class="opt">계정 A 버킷에 MFA Delete 활성화</button>
+  </div>
+  <div class="feedback"><p>교차 계정은 양쪽이 모두 허용해야 한다는 0002의 규칙 그대로입니다. 원본 쪽 역할(자격 증명 기반 정책)만으로는 부족하고, 대상 버킷 소유자가 버킷 정책으로 원본 소유자에게 복제를 허용해야 합니다. 나머지 보기는 복제의 필수 조건이 아닙니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q7. 전 세계 지사에서 수 GB짜리 영상 파일을 버지니아 리전의 버킷 하나로 업로드하는데, 아시아 지사의 업로드가 느리고 자주 실패합니다. 코드 변경을 최소화하면서 개선하는 방법은?</p>
+  <div class="options">
+    <button class="opt">Transfer Acceleration과 멀티파트 업로드</button>
+    <button class="opt">모든 객체를 Express One Zone 클래스로 변경</button>
+    <button class="opt">아시아 리전에도 SRR용 대상 버킷을 하나 더 추가해 둠</button>
+    <button class="opt">Requester Pays를 켜서 각 지사가 비용을 부담</button>
+  </div>
+  <div class="feedback"><p>원거리 클라이언트 → 중앙 버킷 업로드는 Transfer Acceleration(엣지 경유), 큰 파일의 재시도 문제는 멀티파트 업로드(실패한 조각만 재전송)가 답입니다. SRR은 같은 리전 안 복제라 업로드 경로를 바꾸지 못하고, Express One Zone은 단일 AZ 저지연 클래스이지 대륙 간 전송 문제를 풀지 않습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q8. 외부 감사인에게 비공개 버킷의 보고서 파일 하나를 24시간 동안만 내려받게 하려 합니다. 감사인은 AWS 계정이 없고, 버킷 정책은 바꾸고 싶지 않습니다.</p>
+  <div class="options">
+    <button class="opt">버킷 정책 Principal을 "*"로 연다</button>
+    <button class="opt">감사인 전용 IAM 사용자와 액세스 키 발급</button>
+    <button class="opt">버킷을 Requester Pays로 구성한다</button>
+    <button class="opt">만료 24시간인 미리 서명된 URL을 발급함</button>
+  </div>
+  <div class="feedback"><p>미리 서명된 URL은 버킷 정책을 고치지 않고 기한부 접근을 줍니다. <code>"*"</code>는 익명 전체 공개라 위험하고, IAM 사용자 발급은 장기 자격 증명을 외부에 주는 것이며, Requester Pays는 익명·비인증 접근을 오히려 막습니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) 8개 클래스를 "최소 보관 기간"과 "AZ 개수"로 분류해 보세요. (2) Glacier Flexible Retrieval과 Deep Archive의 복원 옵션별 시간은? (3) 복제를 설정하기 위한 필수 조건 두 가지와, 교차 계정일 때 하나 더 필요한 것은?</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) 최소 보관 없음: Standard, Intelligent-Tiering, Express One Zone. 30일: Standard-IA, One Zone-IA. 90일: Glacier Instant, Glacier Flexible. 180일: Deep Archive. AZ 1개: One Zone-IA, Express One Zone. 나머지는 3개 이상.</p>
+    <p>(2) Flexible: Expedited 1–5분, Standard 3–5시간, Bulk 5–12시간. Deep Archive: Expedited 없음, Standard 12시간 이내, Bulk 48시간 이내.</p>
+    <p>(3) 원본·대상 버킷 모두 버전 관리, S3에 복제 권한(IAM 역할). 교차 계정이면 대상 버킷 정책이 원본 소유자에게 복제를 허용. 기존 객체는 Batch Replication.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">"Understanding and managing Amazon S3 storage classes"</a>. 맨 아래 비교표 하나가 오늘 레슨의 절반입니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 거의 무료)</strong>: 테스트 버킷에 버전 관리를 켜고, 같은 이름으로 파일을 두 번 올린 뒤 삭제해 보세요. 콘솔에서 "버전 표시"를 켜면 삭제 마커와 이전 버전이 보이고, 삭제 마커를 지우면 객체가 되살아납니다. 수명 주기 규칙에서 "30일 후 Glacier Flexible Retrieval" 전환을 만들어 화면만 살펴봐도 좋습니다. 실습이 끝나면 버킷을 비우고 지우세요. 버전마다 저장 요금이 붙습니다.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q3(Deep Archive vs Expedited)와 Q4(거버넌스 vs 규정 준수)를 틀렸다면 어떤 단어에 끌렸는지도 말해 주세요. 시나리오 키워드를 읽는 연습을 다음 레슨에서 더 넣겠습니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">Amazon S3, Understanding and managing Amazon S3 storage classes</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html">Amazon S3, Transitioning objects using Amazon S3 Lifecycle</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html">Amazon S3, Understanding archive retrieval options</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html">Amazon S3, Managing the lifecycle of objects</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html">Amazon S3, Retaining multiple versions of objects with S3 Versioning</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/MultiFactorAuthenticationDelete.html">Amazon S3, Configuring MFA delete</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html">Amazon S3, Replicating objects within and across Regions</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-requirements.html">Amazon S3, Requirements and considerations for replication</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-what-is-isnot-replicated.html">Amazon S3, What does Amazon S3 replicate?</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html">Amazon S3, Locking objects with Object Lock</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html">Amazon S3, Download and upload objects with presigned URLs</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/RequesterPaysBuckets.html">Amazon S3, Using Requester Pays general purpose buckets</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html">Amazon S3, Best practices design patterns: optimizing Amazon S3 performance</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">Amazon S3, Uploading and copying objects using multipart upload</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/transfer-acceleration.html">Amazon S3, Configuring fast, secure file transfers using Amazon S3 Transfer Acceleration</a></li>
+<li><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">AWS Decision Guide, Choosing an AWS storage service</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0017-disaster-recovery.html">← 0017 DR 전략</a></span>
+  <span><a href="0019-ebs-efs-fsx.html">다음: 0019 블록/파일/객체: EBS, EFS, FSx →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPC 서브넷과 라우팅</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0004 · 도메인 1 보안 (30%) · Task 1.2</p>
+<h1>VPC 기초:<br>CIDR, 서브넷, 라우팅 테이블, 인터넷 게이트웨이</h1>
+<p class="lede">"퍼블릭 서브넷"은 서브넷의 설정값이 아니라 <em>라우팅 테이블 한 줄</em>의 결과입니다. 이것을 정확히 알면 VPC 문제의 기초 함정은 대부분 피할 수 있습니다.</p>
+<div class="meta"><span>⏱ 약 18분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/vpc-networking.html">VPC 치트시트</a></span></div>
+
+<h2>왜 이것인가</h2>
+<p><strong>시험에서</strong>: "인스턴스에 퍼블릭 IP가 있는데 인터넷이 안 된다", "DB는 인터넷에서 접근할 수 없어야 한다" 같은 문제는 라우팅 테이블을 읽을 줄 알면 풀립니다.<br>
+<strong>실무에서</strong>: 웹·앱·DB 계층을 서브넷으로 나누고 AZ 두 곳 이상에 펼치는 것이 거의 모든 AWS 아키텍처의 출발점입니다.</p>
+
+<h2>VPC와 CIDR</h2>
+<p><strong>VPC</strong>는 AWS 클라우드 안에서 논리적으로 격리된 내 가상 네트워크입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[1]</a></sup> 만들 때 IPv4 <strong>CIDR 블록</strong>을 지정해야 하며, 허용 크기는 <code>/16</code>(65,536개)부터 <code>/28</code>(16개)까지입니다. AWS는 RFC 1918 사설 대역(<code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>)에서 고르라고 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html">[2]</a></sup></p>
+<ul>
+  <li>나중에 <strong>보조 CIDR 블록</strong>을 추가할 수는 있지만, 기존 CIDR 블록의 크기를 늘리거나 줄일 수는 <strong>없습니다</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html">[2]</a></sup></li>
+  <li>피어링이나 Direct Connect 게이트웨이로 묶을 VPC끼리는 CIDR이 겹치면 안 됩니다(0007에서 다시 봅니다). 처음부터 회사 전체 IP 계획을 세워 두는 이유입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html">[2]</a></sup></li>
+</ul>
+
+<h2>서브넷: 한 AZ 안의 IP 범위</h2>
+<p><strong>서브넷</strong>은 VPC 안의 IP 주소 범위입니다. 핵심 제약 하나: <strong>서브넷은 하나의 가용 영역(AZ) 안에만 존재하며 여러 AZ에 걸칠 수 없습니다.</strong> 그래서 AZ 장애에 견디려면 서로 다른 AZ의 서브넷에 리소스를 나눠 띄워야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html">[3]</a></sup></p>
+<p>서브넷 크기도 <code>/28</code>~<code>/16</code>이고, 같은 VPC의 서브넷끼리 CIDR이 겹칠 수 없습니다. 그리고 <strong>각 서브넷의 처음 4개와 마지막 1개, 총 5개 주소는 예약</strong>되어 쓸 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html">[4]</a></sup></p>
+<table>
+<tr><th>10.0.0.0/24 서브넷의 예약 주소</th><th>용도</th></tr>
+<tr><td><code>10.0.0.0</code></td><td>네트워크 주소</td></tr>
+<tr><td><code>10.0.0.1</code></td><td>VPC 라우터</td></tr>
+<tr><td><code>10.0.0.2</code></td><td>DNS 서버 (VPC 기본 대역 + 2)</td></tr>
+<tr><td><code>10.0.0.3</code></td><td>향후 사용 예약</td></tr>
+<tr><td><code>10.0.0.255</code></td><td>브로드캐스트 (VPC는 브로드캐스트를 지원하지 않아 예약)</td></tr>
+</table>
+<p>그래서 <code>/24</code> 서브넷에서 실제로 쓸 수 있는 주소는 256 − 5 = <strong>251개</strong>입니다.</p>
+
+<h2>라우팅 테이블</h2>
+<p><strong>라우팅 테이블</strong>은 서브넷에서 나가는 트래픽을 어디로 보낼지 정하는 규칙(라우트) 모음입니다. 각 라우트는 <strong>대상(destination, CIDR)</strong>과 <strong>타깃(target, 인터넷 게이트웨이·NAT 게이트웨이·피어링 등)</strong>으로 이뤄집니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html">[5]</a></sup></p>
+<ul>
+  <li><strong>기본 라우팅 테이블(main route table)</strong>: VPC와 함께 자동 생성. 다른 테이블에 <em>명시적으로 연결되지 않은</em> 모든 서브넷의 라우팅을 담당합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/RouteTables.html">[6]</a></sup> 새 서브넷은 자동으로 여기에 연결됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html">[3]</a></sup></li>
+  <li><strong>사용자 지정 라우팅 테이블</strong>: 직접 만들어 특정 서브넷에 연결.</li>
+  <li><strong>로컬 라우트</strong>: VPC 내부 통신용 기본 라우트. 모든 라우팅 테이블에 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/RouteTables.html">[6]</a></sup></li>
+  <li><strong>가장 긴 접두사 일치(longest prefix match)</strong>: 여러 라우트가 맞으면 가장 구체적인 라우트가 이깁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html">[7]</a></sup></li>
+</ul>
+<pre><code>대상              타깃
+10.0.0.0/16      local                   ← VPC 내부
+172.31.0.0/16    pcx-11223344556677889   ← 피어링된 VPC
+0.0.0.0/0        igw-12345678901234567   ← 나머지 전부 → 인터넷</code></pre>
+<p>172.31.5.10으로 가는 패킷은 <code>0.0.0.0/0</code>에도 맞지만 <code>/16</code>이 더 구체적이므로 피어링으로 갑니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html">[7]</a></sup></p>
+
+<h2>인터넷 게이트웨이와 "퍼블릭"의 정의</h2>
+<p><strong>인터넷 게이트웨이(IGW)</strong>는 VPC와 인터넷 간 통신을 가능하게 하는 수평 확장·이중화·고가용 구성 요소입니다. 가용성 위험이나 대역폭 제약을 일으키지 않고, IGW 자체 요금은 없습니다(데이터 전송 요금은 있음). IPv4의 경우 인스턴스의 사설 IP와 퍼블릭 IP 사이의 일대일 NAT를 IGW가 수행합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">[8]</a></sup></p>
+<table>
+<tr><th>서브넷 유형</th><th>정의 (라우팅으로 결정됨)</th></tr>
+<tr><td><strong>퍼블릭</strong></td><td>IGW로 가는 직접 라우트가 있음</td></tr>
+<tr><td><strong>프라이빗</strong></td><td>IGW로 가는 직접 라우트가 없음. 인터넷에 나가려면 NAT 장치 필요(0006)</td></tr>
+<tr><td><strong>VPN 전용</strong></td><td>가상 프라이빗 게이트웨이를 통한 Site-to-Site VPN 라우트가 있고 IGW 라우트는 없음(0007)</td></tr>
+<tr><td><strong>격리(isolated)</strong></td><td>VPC 밖으로 가는 라우트가 전혀 없음</td></tr>
+</table>
+<p class="muted" style="font-size:.9rem">출처: VPC 사용 설명서의 서브넷 유형<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html">[3]</a></sup></p>
+<p>퍼블릭 서브넷의 인스턴스가 인터넷과 통신하려면 <strong>세 가지가 모두</strong> 필요합니다: ① VPC에 IGW 연결 ② 서브넷 라우팅 테이블에 IGW로 가는 라우트(보통 <code>0.0.0.0/0</code>) ③ 인스턴스의 퍼블릭 IPv4 주소 또는 탄력적 IP. 반대로 IGW 라우트가 없는 서브넷의 인스턴스는 <strong>퍼블릭 IP가 있어도</strong> 인터넷과 통신할 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">[8]</a></sup> (보안 그룹과 NACL도 허용해야 합니다. 다음 레슨입니다.)</p>
+<p><small>기본 VPC에는 IGW, <code>0.0.0.0/0</code> → IGW 라우트, 기본 서브넷의 퍼블릭 IP 자동 할당이 이미 갖춰져 있습니다. 직접 만든 VPC에는 셋 다 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">[8]</a></sup></small></p>
+
+<h2>다중 계층 배치</h2>
+<p>AWS는 웹·애플리케이션·DB 계층을 서브넷으로 나누고, 인터넷에서 직접 접근할 필요가 없는 인스턴스는 프라이빗 서브넷에 두라고 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">[1]</a></sup> 전형적인 2-AZ 배치는 아래와 같습니다.</p>
+<figure>
+<svg viewBox="0 0 560 290" role="img" aria-label="두 AZ에 걸친 VPC. 각 AZ에 퍼블릭, 앱용 프라이빗, DB용 프라이빗 서브넷이 있고, 퍼블릭 서브넷의 라우팅 테이블만 인터넷 게이트웨이로 가는 라우트를 가짐" style="width:100%;height:auto;font-family:var(--sans)">
+  <rect x="235" y="6" width="90" height="30" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="280" y="26" text-anchor="middle" font-size="12" fill="var(--fg)">IGW</text>
+  <line x1="280" y1="36" x2="280" y2="50" stroke="var(--muted)"/>
+  <rect x="10" y="50" width="540" height="200" rx="10" fill="none" stroke="var(--fg)"/>
+  <text x="22" y="68" font-size="12" fill="var(--muted)">VPC 10.0.0.0/16</text>
+  <rect x="25" y="76" width="245" height="166" rx="8" fill="none" stroke="var(--rule)" stroke-dasharray="4 3"/>
+  <text x="37" y="92" font-size="11" fill="var(--muted)">AZ a</text>
+  <rect x="290" y="76" width="245" height="166" rx="8" fill="none" stroke="var(--rule)" stroke-dasharray="4 3"/>
+  <text x="302" y="92" font-size="11" fill="var(--muted)">AZ b</text>
+  <rect x="40" y="98" width="215" height="40" rx="6" fill="var(--ok-soft)" stroke="var(--ok)"/>
+  <text x="147" y="116" text-anchor="middle" font-size="12" fill="var(--fg)">퍼블릭 10.0.0.0/24</text>
+  <text x="147" y="131" text-anchor="middle" font-size="10" fill="var(--muted)">로드 밸런서 · NAT 게이트웨이</text>
+  <rect x="305" y="98" width="215" height="40" rx="6" fill="var(--ok-soft)" stroke="var(--ok)"/>
+  <text x="412" y="116" text-anchor="middle" font-size="12" fill="var(--fg)">퍼블릭 10.0.1.0/24</text>
+  <text x="412" y="131" text-anchor="middle" font-size="10" fill="var(--muted)">로드 밸런서 · NAT 게이트웨이</text>
+  <rect x="40" y="146" width="215" height="40" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="147" y="164" text-anchor="middle" font-size="12" fill="var(--fg)">프라이빗(앱) 10.0.10.0/24</text>
+  <text x="147" y="179" text-anchor="middle" font-size="10" fill="var(--muted)">EC2 앱 서버</text>
+  <rect x="305" y="146" width="215" height="40" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="412" y="164" text-anchor="middle" font-size="12" fill="var(--fg)">프라이빗(앱) 10.0.11.0/24</text>
+  <text x="412" y="179" text-anchor="middle" font-size="10" fill="var(--muted)">EC2 앱 서버</text>
+  <rect x="40" y="194" width="215" height="40" rx="6" fill="none" stroke="var(--muted)"/>
+  <text x="147" y="212" text-anchor="middle" font-size="12" fill="var(--fg)">프라이빗(DB) 10.0.20.0/24</text>
+  <text x="147" y="227" text-anchor="middle" font-size="10" fill="var(--muted)">RDS 기본</text>
+  <rect x="305" y="194" width="215" height="40" rx="6" fill="none" stroke="var(--muted)"/>
+  <text x="412" y="212" text-anchor="middle" font-size="12" fill="var(--fg)">프라이빗(DB) 10.0.21.0/24</text>
+  <text x="412" y="227" text-anchor="middle" font-size="10" fill="var(--muted)">RDS 대기</text>
+  <text x="280" y="270" text-anchor="middle" font-size="11" fill="var(--muted)">초록 서브넷의 라우팅 테이블에만 0.0.0.0/0 → IGW · 나머지는 IGW 라우트 없음</text>
+</svg>
+<figcaption>서브넷 이름에 "퍼블릭"이라고 붙여도 의미가 없습니다. 연결된 라우팅 테이블이 결정합니다.</figcaption>
+</figure>
+
+<div class="callout">
+<p class="label">시험 단골</p>
+<p><strong>"퍼블릭 IP가 있는데 인터넷이 안 됨"</strong> → 서브넷 라우팅 테이블에 <code>0.0.0.0/0</code> → IGW 라우트가 있는지부터 확인.<br>
+<strong>"고가용성"</strong> → 서브넷은 AZ 하나에 묶이므로 <strong>최소 2개 AZ</strong>에 서브넷과 리소스를 배치.<br>
+<strong>"DB는 인터넷에서 접근 불가"</strong> → IGW 라우트가 없는 프라이빗(또는 격리) 서브넷.<br>
+<strong>"IP가 부족해 VPC를 키워야 함"</strong> → 기존 CIDR 확장은 불가, <strong>보조 CIDR 블록 추가</strong>.<br>
+<strong>"사용 가능한 IP 개수"</strong> → 서브넷 크기에서 <strong>5개</strong>를 뺀다.</p>
+</div>
+
+<h2>연습</h2>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 서브넷 A의 EC2 인스턴스에 퍼블릭 IPv4 주소가 있습니다. VPC에는 IGW가 연결되어 있지만, 서브넷 A가 쓰는 라우팅 테이블에는 <code>local</code> 라우트만 있습니다. 인스턴스가 인터넷의 웹 사이트에 접속하면?</p>
+  <div class="options">
+    <button class="opt">성공 · 퍼블릭 IP만 있으면 인터넷 됨</button>
+    <button class="opt">성공 · VPC에 IGW가 연결되어 있다</button>
+    <button class="opt">실패 · IGW로 향하는 라우트가 없어서</button>
+    <button class="opt">실패 · 탄력적 IP가 아닌 퍼블릭 IP</button>
+  </div>
+  <div class="feedback"><p>IGW 라우트가 없는 서브넷은 정의상 프라이빗 서브넷이며, 그 안의 인스턴스는 퍼블릭 IP가 있어도 인터넷과 통신할 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">[8]</a></sup> IGW는 VPC에 붙어 있어도 라우트가 그쪽을 가리켜야 쓰입니다. 자동 할당 퍼블릭 IP와 탄력적 IP는 둘 다 인터넷 통신에 쓸 수 있습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. 새 VPC의 기본 IPv4 CIDR 블록으로 지정할 수 <em>없는</em> 것은?</p>
+  <div class="options">
+    <button class="opt">10.0.0.0/12</button>
+    <button class="opt">10.0.0.0/16</button>
+    <button class="opt">10.0.0.0/20</button>
+    <button class="opt">10.0.0.0/28</button>
+  </div>
+  <div class="feedback"><p>VPC CIDR은 <code>/16</code>부터 <code>/28</code>까지만 허용됩니다. <code>/12</code>는 <code>/16</code>보다 커서 허용되지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html">[2]</a></sup> <code>/28</code>은 16개뿐이라 실용성은 낮지만 허용 범위 안입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q3. <code>10.0.5.0/24</code> 서브넷에서 EC2 인스턴스 등에 할당할 수 있는 IPv4 주소는 최대 몇 개인가?</p>
+  <div class="options">
+    <button class="opt">256개</button>
+    <button class="opt">254개</button>
+    <button class="opt">252개</button>
+    <button class="opt">251개</button>
+  </div>
+  <div class="feedback"><p>AWS는 서브넷마다 처음 4개(네트워크, VPC 라우터, DNS, 예약)와 마지막 1개(브로드캐스트)를 예약합니다. 256 − 5 = 251.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html">[4]</a></sup> 254는 일반 네트워크에서 네트워크·브로드캐스트만 뺐을 때의 답이라 함정입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. (시험형) 회사가 웹 애플리케이션을 EC2에 배포합니다. 가용 영역 하나가 장애를 겪어도 서비스가 계속되어야 합니다. 서브넷 설계로 옳은 것은?</p>
+  <div class="options">
+    <button class="opt">큰 서브넷 하나를 여러 AZ에 걸쳐 만들어 배치</button>
+    <button class="opt">두 AZ에 각각 서브넷을 만들고 인스턴스를 분산</button>
+    <button class="opt">한 AZ에 서브넷 두 개를 만들어 인스턴스 분산</button>
+    <button class="opt">VPC를 두 개 만들어 같은 AZ에서 각각 실행</button>
+  </div>
+  <div class="feedback"><p>서브넷은 하나의 AZ 안에만 존재하고 AZ에 걸칠 수 없습니다. 그래서 AZ 장애 대비는 "서로 다른 AZ의 서브넷"으로 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html">[3]</a></sup> 같은 AZ 안에서 서브넷이나 VPC를 늘려도 그 AZ가 죽으면 함께 죽습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q5. 서브넷의 라우팅 테이블이 아래와 같습니다. 이 서브넷의 인스턴스가 <code>172.31.8.20</code>으로 패킷을 보내면 어디로 가는가?</p>
+<pre><code>10.0.0.0/16     local
+172.31.0.0/16   pcx-1a2b (VPC 피어링)
+0.0.0.0/0       igw-9z8y</code></pre>
+  <div class="options">
+    <button class="opt">IGW · 0.0.0.0/0이 모두를 포함함</button>
+    <button class="opt">VPC 내부 · local 라우트가 늘 우선</button>
+    <button class="opt">피어링 연결 · 더 구체적인 라우트가 우선함</button>
+    <button class="opt">전달 안 됨 · 겹치는 라우트가 있어서 충돌</button>
+  </div>
+  <div class="feedback"><p>가장 긴 접두사 일치입니다. <code>0.0.0.0/0</code>과 <code>172.31.0.0/16</code> 둘 다 맞지만 <code>/16</code>이 더 구체적입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html">[7]</a></sup> <code>local</code>은 VPC CIDR(10.0.0.0/16) 안의 주소에만 맞습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1,2">
+  <p class="q-title">Q6. 직접 만든 VPC에 IGW를 연결했습니다. 서브넷 B의 새 EC2 인스턴스가 인터넷과 통신하려면 <strong>추가로</strong> 무엇이 필요한가? <strong>두 개</strong>를 고르세요. (보안 그룹과 NACL은 이미 허용되어 있다고 가정)</p>
+  <div class="options">
+    <button class="opt">서브넷 B 안에 NAT 게이트웨이를 생성</button>
+    <button class="opt">서브넷 B 라우팅 테이블에 IGW 라우트</button>
+    <button class="opt">인스턴스에 퍼블릭 IPv4나 탄력적 IP</button>
+    <button class="opt">VPC에 보조 CIDR 블록 하나를 추가</button>
+  </div>
+  <div class="feedback"><p>IGW 연결 + IGW 라우트 + 퍼블릭 IP, 세 가지가 모두 필요하고 첫째는 이미 되어 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">[8]</a></sup> 직접 만든 VPC는 기본 VPC와 달리 IGW 라우트도, 퍼블릭 IP 자동 할당도 없습니다. NAT 게이트웨이는 <em>프라이빗</em> 서브넷의 아웃바운드용입니다(0006).</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q7. (시험형) 한 운영자가 VPC의 <strong>기본 라우팅 테이블</strong>에 <code>0.0.0.0/0</code> → IGW 라우트를 추가했습니다. 이후 어떤 라우팅 테이블에도 명시적으로 연결하지 않은 DB 서브넷이 인터넷에 노출될 위험이 생겼습니다. 이유는?</p>
+  <div class="options">
+    <button class="opt">IGW 라우트가 모든 테이블에 복제되기 때문</button>
+    <button class="opt">DB 서브넷은 항상 퍼블릭으로 생성되기 때문</button>
+    <button class="opt">로컬 라우트가 IGW 라우트로 대체되었으므로</button>
+    <button class="opt">연결 안 된 서브넷은 기본 테이블을 따르므로</button>
+  </div>
+  <div class="feedback"><p>기본 라우팅 테이블은 다른 테이블에 명시적으로 연결되지 않은 모든 서브넷의 라우팅을 맡습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/RouteTables.html">[6]</a></sup> 그래서 실무에서는 기본 테이블을 프라이빗(IGW 라우트 없음)으로 두고, 퍼블릭 서브넷에만 별도 테이블을 명시적으로 연결하는 편이 안전합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q8. (0003 복습) 회사는 Sandbox OU의 모든 계정에서 누구도 VPC에 인터넷 게이트웨이를 연결하지 못하게 하려 합니다. 각 계정에는 관리자 권한을 가진 사용자가 있습니다. 가장 적절한 방법은?</p>
+  <div class="options">
+    <button class="opt">Sandbox OU에 IGW 거부 SCP 연결</button>
+    <button class="opt">각 계정 관리자에게 IGW를 쓰지 말라고 공지</button>
+    <button class="opt">각 사용자 권한 경계에서 IGW 작업을 허용함</button>
+    <button class="opt">관리 계정 IAM 정책으로 IGW 연결 거부함</button>
+  </div>
+  <div class="feedback"><p>"관리자 권한이 있어도", "OU의 모든 계정에" → SCP의 Deny입니다(0003 규칙 8). 권한 경계는 상한선이라 "허용"을 넣는다고 막히지 않고, 관리 계정의 IAM 정책은 회원 계정 주체에 아무 효력이 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[9]</a></sup></p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) 퍼블릭 서브넷과 프라이빗 서브넷을 가르는 기준은? (2) 인스턴스가 IGW로 인터넷과 통신하기 위한 세 가지 조건은? (3) 서브넷과 AZ의 관계, 그리고 예약 IP 개수는?</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) 서브넷에 연결된 라우팅 테이블에 <strong>IGW로 가는 직접 라우트</strong>가 있으면 퍼블릭, 없으면 프라이빗.</p>
+    <p>(2) VPC에 IGW 연결, 라우팅 테이블에 IGW 라우트(<code>0.0.0.0/0</code>), 인스턴스에 퍼블릭 IPv4 또는 탄력적 IP. (보안 그룹·NACL 허용은 별도.)</p>
+    <p>(3) 서브넷은 <strong>AZ 하나</strong>에만 속하고 걸칠 수 없음. 서브넷마다 <strong>5개</strong> 주소 예약.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 8분)</strong>: <a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">"Enable internet access for a VPC using an internet gateway"</a>. 퍼블릭/프라이빗 정의와 기본 VPC 비교표가 한 페이지에 있습니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 무료)</strong>: VPC 콘솔의 "Create VPC → VPC and more"에서 AZ 2개, 퍼블릭 2개, 프라이빗 2개를 고르고 <strong>NAT gateways는 None</strong>으로 두세요(NAT 게이트웨이는 시간당 요금이 붙습니다). 만들어진 라우팅 테이블들을 열어 어느 테이블에 IGW 라우트가 있는지 확인하면 오늘 내용이 눈에 들어옵니다. VPC, 서브넷, 라우팅 테이블, IGW 자체는 무료입니다.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. CIDR 계산(<code>/20</code>은 몇 개?)이 익숙하지 않다면 그것도 말해 주세요. 시험에서는 깊게 묻지 않지만, 필요하면 짧게 따로 다루겠습니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/infrastructure-security.html">Amazon VPC, Infrastructure security in Amazon VPC</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html">Amazon VPC, VPC CIDR blocks</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/configure-subnets.html">Amazon VPC, Subnets for your VPC</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html">Amazon VPC, Subnet CIDR blocks</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Route_Tables.html">Amazon VPC, Configure route tables</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/RouteTables.html">Amazon VPC, Route table concepts</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/route-tables-priority.html">Amazon VPC, How route priority works</a></li>
+<li><a href="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html">Amazon VPC, Enable internet access for a VPC using an internet gateway</a></li>
+<li><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">AWS Organizations, Service control policies (SCPs)</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0003-organizations-scp-boundaries.html">← 0003 다중 계정과 권한 가드레일</a></span>
+  <span><a href="0005-security-groups-vs-nacls.html">다음: 0005 보안 그룹 vs 네트워크 ACL →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

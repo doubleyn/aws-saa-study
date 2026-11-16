@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EBS, EFS, FSx</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0019 · 도메인 3 고성능 (24%) · Task 3.1, 4.1</p>
+<h1>블록 · 파일 · 객체:<br>EBS 볼륨 유형, 인스턴스 스토어, EFS, FSx</h1>
+<p class="lede">"어떤 스토리지를 써야 하나?" 문제는 세 질문으로 끝납니다. 몇 대가 동시에 붙는가, 어떤 OS·프로토콜인가, IOPS와 처리량 중 무엇이 중요한가. 오늘은 이 세 질문으로 EBS 볼륨 유형과 파일 서비스 다섯 가지를 가려냅니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/storage.html">스토리지 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>왜 이것부터인가</h2>
+<p><strong>시험에서</strong>: Task 3.1(고성능 스토리지 선택)과 4.1(비용 효율 스토리지)이 "gp2 → gp3", "Windows + SMB → FSx for Windows", "HPC → FSx for Lustre" 같은 짝짓기로 자주 나옵니다.<br>
+<strong>실무에서</strong>: EBS가 AZ에 묶인다는 사실을 모르면 DR 설계가 무너지고, 인스턴스 스토어에 중요한 데이터를 두면 인스턴스를 중지하는 순간 사라집니다.</p>
+
+<h2>세 가지 저장 방식</h2>
+<table>
+<tr><th></th><th>블록</th><th>파일</th><th>객체</th></tr>
+<tr><td>구조</td><td>데이터를 같은 크기 블록으로 나눠 저장</td><td>파일·폴더 계층, NAS처럼 네트워크로 공유</td><td>고유 식별자와 메타데이터가 붙은 객체</td></tr>
+<tr><td>접근</td><td>인스턴스에 직접 붙어 저지연</td><td>NFS·SMB로 여러 인스턴스가 동시에</td><td>인터넷을 통한 API</td></tr>
+<tr><td>AWS 서비스</td><td>EBS, EC2 인스턴스 스토어</td><td>EFS, FSx 네 종류</td><td>S3</td></tr>
+</table>
+<p><sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">[1]</a></sup> AWS 가이드의 요약은 이렇습니다. 블록은 <em>단일 인스턴스</em>에 붙는 저지연 스토리지, 파일은 <em>여러 인스턴스·온프레미스 서버</em>의 공유 읽기·쓰기, 객체는 읽기 위주·전 세계 배포용입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html#choose">[1]</a></sup></p>
+
+<h2>EBS: AZ에 묶인 블록 볼륨</h2>
+<p>EBS 볼륨은 인스턴스 수명과 무관하게 유지되는 블록 장치이며, <strong>볼륨과 인스턴스가 같은 AZ에 있어야</strong> 연결할 수 있습니다. 운영 중에도 크기·IOPS·볼륨 유형을 바꿀 수 있습니다(Elastic Volumes).<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volumes.html">[2]</a></sup></p>
+
+<table>
+<tr><th>유형</th><th>매체</th><th>최대 IOPS</th><th>최대 처리량</th><th>쓰임</th><th>부팅</th></tr>
+<tr><td><strong>gp3</strong></td><td>SSD</td><td>80,000</td><td>2,000 MiB/s</td><td>대부분의 워크로드, 부팅, 중간 규모 DB, 개발·테스트</td><td>가능</td></tr>
+<tr><td>gp2</td><td>SSD</td><td>16,000</td><td>250 MiB/s</td><td>위와 같음(이전 세대)</td><td>가능</td></tr>
+<tr><td><strong>io2 Block Express</strong></td><td>SSD</td><td>256,000</td><td>4,000 MiB/s</td><td>평균 500마이크로초 미만 지연, 80,000 IOPS 초과가 필요한 DB</td><td>가능</td></tr>
+<tr><td>io1</td><td>SSD</td><td>64,000</td><td>1,000 MiB/s</td><td>16,000 IOPS 초과, I/O 집약 DB</td><td>가능</td></tr>
+<tr><td><strong>st1</strong></td><td>HDD</td><td>500</td><td>500 MiB/s</td><td>빅데이터, 데이터 웨어하우스, 로그 처리</td><td><strong>불가</strong></td></tr>
+<tr><td><strong>sc1</strong></td><td>HDD</td><td>250</td><td>250 MiB/s</td><td>자주 접근하지 않는 처리량 중심 데이터, 최저 비용</td><td><strong>불가</strong></td></tr>
+</table>
+<p><sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volume-types.html">[3]</a></sup> SSD는 작은 I/O가 잦은 트랜잭션(IOPS 중심), HDD는 큰 순차 스트리밍(처리량 중심)에 맞춥니다. 내구성은 io2 Block Express만 99.999%이고 나머지는 99.8–99.9%입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volume-types.html">[3]</a></sup></p>
+
+<h3>gp3 vs gp2: 시험이 가장 좋아하는 비교</h3>
+<ul>
+  <li><strong>gp3</strong>: 크기와 무관하게 <strong>기본 3,000 IOPS · 125 MiB/s</strong>가 가격에 포함되고, IOPS·처리량을 크기와 따로 추가할 수 있습니다. 버스트 방식이 아니라 프로비저닝한 성능을 계속 유지합니다. GiB당 가격이 gp2보다 20% 낮습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html">[4]</a></sup></li>
+  <li><strong>gp2</strong>: 성능이 <strong>크기에 비례</strong>합니다(GiB당 3 IOPS, 최소 100). 1TiB 미만 볼륨은 I/O 크레딧으로 3,000 IOPS까지 버스트합니다. 그래서 "IOPS가 부족해 크기를 키우는" 낭비가 생깁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html#EBSVolumeTypes_gp2">[4]</a></sup></li>
+  <li>gp2 → gp3 전환은 Elastic Volumes로 <strong>인스턴스 중단 없이</strong> 할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html#migrate-to-gp3">[4]</a></sup></li>
+</ul>
+
+<h3>Multi-Attach</h3>
+<p>Provisioned IOPS(<code>io1</code>·<code>io2</code>) 볼륨만, <strong>같은 AZ</strong>의 Nitro 기반 인스턴스 최대 16대에 동시에 붙일 수 있습니다. XFS·EXT4 같은 일반 파일 시스템은 동시 접근용이 아니므로 클러스터 파일 시스템이 필요하고, 부팅 볼륨으로는 쓸 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volumes-multi.html">[5]</a></sup> 즉 "여러 서버가 파일을 공유"하는 일반적인 요구의 답은 Multi-Attach가 아니라 EFS·FSx입니다.</p>
+
+<h3>스냅숏</h3>
+<ul>
+  <li><strong>증분 백업</strong>: 마지막 스냅숏 이후 바뀐 블록만 저장합니다. 사용자가 직접 볼 수 없는 S3 버킷에 저장됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-snapshots.html">[6]</a></sup></li>
+  <li>스냅숏 데이터는 리전의 모든 AZ에 복제되므로 <strong>같은 리전의 어느 AZ에서나 볼륨을 복원</strong>할 수 있습니다. EBS 볼륨을 다른 AZ로 "옮기는" 방법이 바로 이것입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-snapshots.html">[6]</a></sup></li>
+  <li>AWS는 EBS를 자동 백업하지 않습니다. Amazon Data Lifecycle Manager나 AWS Backup으로 자동화합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-snapshots.html">[6]</a></sup></li>
+  <li><strong>Fast Snapshot Restore</strong>: 복원한 볼륨이 생성 즉시 완전히 초기화되어 첫 접근 지연 없이 프로비저닝 성능을 냅니다. 스냅숏·AZ 조합마다 켜고 시간당 과금됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-fast-snapshot-restore.html">[7]</a></sup></li>
+</ul>
+
+<h2>인스턴스 스토어: 빠르지만 임시</h2>
+<p>호스트 컴퓨터에 <strong>물리적으로 붙은 디스크</strong>로, 추가 요금 없이 인스턴스 가격에 포함됩니다. 버퍼, 캐시, 스크래치 데이터, 여러 인스턴스에 복제해 두는 임시 데이터에 적합합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/InstanceStorage.html">[8]</a></sup></p>
+<table>
+<tr><th>이벤트</th><th>인스턴스 스토어 데이터</th></tr>
+<tr><td>재부팅</td><td>유지</td></tr>
+<tr><td>중지 · 최대 절전 · 종료</td><td><strong>사라짐</strong> (모든 블록이 암호학적으로 지워짐)</td></tr>
+<tr><td>인스턴스 유형 변경</td><td>사라짐</td></tr>
+<tr><td>기반 디스크 장애</td><td>그 디스크의 데이터는 사라짐</td></tr>
+</table>
+<p>인스턴스 시작 시에만 붙일 수 있고, 떼어서 다른 인스턴스에 붙일 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-store-lifetime.html">[9]</a></sup></p>
+
+<h2>파일 스토리지: EFS와 FSx 네 형제</h2>
+<h3>Amazon EFS</h3>
+<ul>
+  <li>서버리스·완전 탄력형 <strong>NFS(v4.0/v4.1)</strong> 파일 시스템. EC2, ECS, EKS, Lambda, Fargate에서 마운트합니다. <strong>Windows 인스턴스는 지원하지 않습니다.</strong><sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">[10]</a></sup></li>
+  <li><strong>Regional</strong>(권장): 여러 AZ에 중복 저장, AZ 장애에도 계속 사용. <strong>One Zone</strong>: 한 AZ에만 저장해 AZ 손실 시 데이터를 잃을 수 있음.<sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">[10]</a></sup></li>
+  <li>AZ마다 마운트 타깃을 하나씩 만들고, 여러 AZ의 인스턴스가 동시에 같은 파일 시스템을 씁니다. Direct Connect나 Site-to-Site VPN으로 연결된 <strong>온프레미스 Linux 서버</strong>에서도 마운트할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/how-it-works.html">[11]</a></sup></li>
+  <li>스토리지 클래스: <strong>Standard</strong>(활성 데이터, 밀리초 미만) · <strong>Infrequent Access</strong>(분기에 몇 번) · <strong>Archive</strong>(1년에 몇 번 이하, 최소 보관 90일, Elastic 처리량 필요). 수명 주기 관리가 접근 없는 파일을 자동으로 내립니다.<sup class="cite"><a href="https://docs.aws.amazon.com/efs/latest/ug/features.html#storage-classes">[12]</a></sup></li>
+</ul>
+
+<h3>Amazon FSx 네 가지</h3>
+<table>
+<tr><th>서비스</th><th>프로토콜 · 클라이언트</th><th>결정적 키워드</th></tr>
+<tr><td><strong>FSx for Windows File Server</strong></td><td>SMB, Windows(최신 Linux에서도 접근 가능)</td><td>Windows 앱 리프트 앤 시프트, <strong>Active Directory</strong> 인증, Windows ACL, 홈 디렉터리. Single-AZ / Multi-AZ(다른 AZ에 대기 파일 서버)<sup class="cite"><a href="https://docs.aws.amazon.com/fsx/latest/WindowsGuide/what-is.html">[13]</a></sup></td></tr>
+<tr><td><strong>FSx for Lustre</strong></td><td>Lustre 클라이언트, Linux, POSIX</td><td>ML, <strong>HPC</strong>, 영상 처리, 금융 모델링. 밀리초 미만 지연, 최대 수 TBps. <strong>S3 버킷과 연결</strong>하면 객체를 파일로 보여 주고 결과를 S3로 다시 씀. 스크래치(복제 없음, 임시) vs 영구(복제됨)<sup class="cite"><a href="https://docs.aws.amazon.com/fsx/latest/LustreGuide/what-is.html">[14]</a></sup></td></tr>
+<tr><td><strong>FSx for NetApp ONTAP</strong></td><td>NFS, SMB, iSCSI, NVMe — <strong>멀티 프로토콜</strong>, Linux·Windows·macOS</td><td>온프레미스 <strong>NetApp</strong> 이전, SnapMirror 복제, 자동 계층화, 압축·중복 제거<sup class="cite"><a href="https://docs.aws.amazon.com/fsx/latest/ONTAPGuide/what-is-fsx-ontap.html">[15]</a></sup></td></tr>
+<tr><td><strong>FSx for OpenZFS</strong></td><td>NFS(v3–v4.2), Linux·Windows·macOS</td><td>온프레미스 <strong>ZFS</strong> 또는 Linux 파일 서버를 코드 변경 없이 이전, 즉시 스냅숏·클론<sup class="cite"><a href="https://docs.aws.amazon.com/fsx/latest/OpenZFSGuide/what-is-fsx.html">[16]</a></sup></td></tr>
+</table>
+<p>AWS 선택 가이드는 FSx를 "이미 쓰고 있는 파일 시스템에 맞춰 고르라"고 정리합니다. 혼합(Linux + Windows) 환경에서 같은 데이터에 NFS와 SMB로 동시에 접근해야 하면 ONTAP입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html#consider">[1]</a></sup></p>
+
+<figure>
+<svg viewBox="0 0 560 230" role="img" aria-label="스토리지 선택 흐름: 한 인스턴스면 블록(EBS 또는 인스턴스 스토어), 여러 인스턴스 공유면 파일(Linux NFS는 EFS, Windows SMB는 FSx for Windows, HPC는 FSx for Lustre, NetApp은 ONTAP, ZFS는 OpenZFS)" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah19" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <rect x="180" y="8" width="200" height="34" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="280" y="30" text-anchor="middle" font-size="12" fill="var(--fg)">몇 대가 동시에 쓰나?</text>
+  <rect x="20" y="72" width="170" height="34" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="105" y="94" text-anchor="middle" font-size="12" fill="var(--fg)">한 대 → 블록</text>
+  <rect x="330" y="72" width="210" height="34" rx="6" fill="none" stroke="var(--fg)"/>
+  <text x="435" y="94" text-anchor="middle" font-size="12" fill="var(--fg)">여러 대 → 파일 (OS·용도?)</text>
+  <line x1="240" y1="42" x2="140" y2="70" stroke="var(--muted)" marker-end="url(#ah19)"/>
+  <line x1="320" y1="42" x2="420" y2="70" stroke="var(--muted)" marker-end="url(#ah19)"/>
+  <text x="20" y="132" font-size="11" fill="var(--fg)">영구 · 스냅숏 → EBS</text>
+  <text x="20" y="150" font-size="11" fill="var(--fg)">임시 · 최고 속도 → 인스턴스 스토어</text>
+  <text x="20" y="168" font-size="11" fill="var(--muted)">IOPS 극한 → io2 Block Express</text>
+  <text x="20" y="186" font-size="11" fill="var(--muted)">순차 처리량 · 저가 → st1 / sc1</text>
+  <text x="300" y="132" font-size="11" fill="var(--fg)">Linux · NFS · 서버리스 → EFS</text>
+  <text x="300" y="150" font-size="11" fill="var(--fg)">Windows · SMB · AD → FSx for Windows</text>
+  <text x="300" y="168" font-size="11" fill="var(--fg)">HPC · ML · S3 연동 → FSx for Lustre</text>
+  <text x="300" y="186" font-size="11" fill="var(--fg)">NetApp · 멀티 프로토콜 → ONTAP</text>
+  <text x="300" y="204" font-size="11" fill="var(--fg)">ZFS · Linux 파일 서버 이전 → OpenZFS</text>
+  <text x="20" y="222" font-size="11" fill="var(--muted)">API로 읽기 위주 · 전 세계 배포 → 객체(S3, 0018)</text>
+</svg>
+</figure>
+
+<div class="callout">
+<p class="label">시험 단골: 키워드 → 답</p>
+<p><strong>gp2를 더 싸게 / IOPS 때문에 크기를 키우는 중</strong> → gp3 · <strong>수십만 IOPS, 밀리초 미만</strong> → io2 Block Express · <strong>로그·빅데이터 순차 처리, 저렴</strong> → st1 · <strong>거의 안 읽는 콜드 데이터, 최저가 블록</strong> → sc1 · <strong>부팅 볼륨</strong> → HDD(st1·sc1)는 탈락.</p>
+<p><strong>임시 캐시·스크래치, 최고 성능, 사라져도 됨</strong> → 인스턴스 스토어 · <strong>다른 AZ에서 같은 데이터</strong> → 스냅숏 후 그 AZ에서 복원 · <strong>여러 AZ의 Linux가 공유</strong> → EFS · <strong>Windows + SMB + AD</strong> → FSx for Windows · <strong>HPC·ML + S3 데이터셋</strong> → FSx for Lustre · <strong>NetApp·iSCSI·NFS+SMB 동시</strong> → FSx for NetApp ONTAP · <strong>ZFS 이전</strong> → FSx for OpenZFS.</p>
+</div>
+
+<h2>연습</h2>
+<p>기억으로 푸세요. 각 문제에서 "몇 대 · OS·프로토콜 · IOPS냐 처리량이냐"부터 표시해 보세요.</p>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q1. 200GiB gp2 볼륨을 쓰는 DB가 피크 때 BurstBalance가 바닥나 느려집니다. 안정적으로 3,000 IOPS가 필요하고, 비용은 지금보다 늘리고 싶지 않습니다. 가장 적절한 조치는?</p>
+  <div class="options">
+    <button class="opt">gp2 볼륨 크기를 1TiB로 늘려 둔다</button>
+    <button class="opt">중단 없이 볼륨 유형을 gp3로 변경한다</button>
+    <button class="opt">io2 Block Express로 바꾼다</button>
+    <button class="opt">st1 처리량 최적화 HDD로 바꿔 둔다</button>
+  </div>
+  <div class="feedback"><p>200GiB gp2의 기준 성능은 600 IOPS이고, 3,000 IOPS는 크레딧이 있을 때만 버스트됩니다. gp3는 크기와 무관하게 3,000 IOPS를 기본 제공하고 GiB당 가격도 20% 낮으며, Elastic Volumes로 중단 없이 바꿀 수 있습니다. 1TiB로 키우면 3,000 IOPS 기준선은 얻지만 쓰지 않는 용량 비용을 냅니다. io2는 이 요구에 과하고, st1은 작은 랜덤 I/O의 DB에 맞지 않습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q2. 매일 수 TB의 로그를 큰 블록 단위로 순차 읽어 집계하는 EC2 배치 작업이 있습니다. 처리량이 중요하고 IOPS는 중요하지 않으며, 데이터는 매일 읽힙니다. 가장 비용 효율적인 EBS 유형은?</p>
+  <div class="options">
+    <button class="opt">gp3 범용 SSD 볼륨 사용</button>
+    <button class="opt">io1(프로비저닝된 IOPS)</button>
+    <button class="opt">sc1 콜드 HDD 볼륨 사용</button>
+    <button class="opt">st1(처리량 최적화 HDD)</button>
+  </div>
+  <div class="feedback"><p>빅데이터·로그 처리, 순차 처리량 중심이면 st1입니다. sc1이 더 싸 보이지만 AWS가 정한 용도는 "자주 접근하지 않는" 처리량 데이터이고 최대 처리량도 st1의 절반(250 MiB/s)입니다. 매일 읽는 작업에는 st1이 맞습니다. SSD 유형은 IOPS에 돈을 내는 셈입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q3. 세 AZ에 걸친 Auto Scaling 그룹의 Linux 웹 서버들이 사용자 업로드 파일을 같은 디렉터리에서 읽고 써야 합니다. 한 AZ가 장애 나도 파일에 접근할 수 있어야 하고, 용량 관리는 하고 싶지 않습니다.</p>
+  <div class="options">
+    <button class="opt">EFS Regional 파일 시스템 마운트</button>
+    <button class="opt">Multi-Attach io2 EBS 볼륨</button>
+    <button class="opt">인스턴스마다 인스턴스 스토어 볼륨을 동기화</button>
+    <button class="opt">EBS gp3 볼륨을 AZ마다 하나씩 연결</button>
+  </div>
+  <div class="feedback"><p>여러 AZ의 Linux가 공유 + 용량 관리 없음 = EFS(Regional)입니다. Multi-Attach는 같은 AZ 안에서만 되고 클러스터 파일 시스템이 필요합니다. 인스턴스 스토어는 인스턴스를 중지·종료하면 사라지고, AZ마다 따로 붙인 EBS는 서로 다른 디스크라 공유가 아닙니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q4. 온프레미스 Windows 파일 서버를 AWS로 옮깁니다. 사용자는 SMB로 접근하고, 기존 Active Directory 계정과 NTFS 권한을 그대로 써야 하며, 관리형 서비스를 원합니다.</p>
+  <div class="options">
+    <button class="opt">Amazon EFS(Regional) 파일 시스템</button>
+    <button class="opt">FSx for Lustre 영구 배포 파일 시스템</button>
+    <button class="opt">FSx for Windows File Server</button>
+    <button class="opt">EC2의 EBS 볼륨을 Windows 공유로 사용</button>
+  </div>
+  <div class="feedback"><p>SMB + AD + Windows ACL + 관리형 = FSx for Windows File Server입니다. EFS는 Windows 인스턴스를 지원하지 않는 NFS이고, Lustre는 Linux HPC용입니다. EC2에 공유 폴더를 직접 만들면 동작은 하지만 패치·백업·장애 대응을 직접 해야 하므로 "관리형" 요구를 어깁니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q5. 연구팀이 S3에 있는 수백 TB 데이터셋으로 수천 개 Linux 노드에서 ML 학습을 돌립니다. 학습 중에는 밀리초 미만 지연과 매우 높은 처리량이 필요하고, 결과는 다시 S3에 남겨야 합니다.</p>
+  <div class="options">
+    <button class="opt">Amazon EFS 파일 시스템(Elastic 처리량)</button>
+    <button class="opt">Amazon FSx for NetApp ONTAP 사용</button>
+    <button class="opt">S3 Express One Zone 버킷에서 직접 읽기</button>
+    <button class="opt">FSx for Lustre S3 데이터 리포지토리 연결</button>
+  </div>
+  <div class="feedback"><p>HPC·ML + S3 데이터셋 + 결과를 S3로 = FSx for Lustre(S3 연결)입니다. S3 객체를 파일로 보여 주고 결과를 S3로 다시 쓸 수 있습니다. EFS도 공유는 되지만 이 정도 HPC 처리량 요구의 대표 답이 아니고, ONTAP은 엔터프라이즈 멀티 프로토콜 NAS입니다. Express One Zone은 객체 API라 "파일 시스템으로 학습" 요구와 다릅니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,2">
+  <p class="q-title">Q6. EC2 인스턴스 스토어에 대해 옳은 것은? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">인스턴스를 재부팅해도 데이터가 유지된다</button>
+    <button class="opt">분리해서 다른 인스턴스에 다시 연결한다</button>
+    <button class="opt">인스턴스를 중지할 때 데이터가 사라진다</button>
+    <button class="opt">AWS가 매일 스냅숏으로 자동 백업한다</button>
+  </div>
+  <div class="feedback"><p>재부팅은 유지, 중지·최대 절전·종료는 소멸입니다. 인스턴스 스토어는 시작 시에만 붙고 다른 인스턴스로 옮길 수 없습니다. 자동 백업도 없습니다(EBS조차 AWS가 자동으로 백업하지 않습니다). 그래서 캐시·스크래치·복제된 임시 데이터에만 씁니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q7. (0016 복습) us-east-1a의 인스턴스가 쓰던 EBS 데이터 볼륨을, 장애 대비로 us-east-1b에 새로 띄운 인스턴스에서 써야 합니다. 올바른 방법은?</p>
+  <div class="options">
+    <button class="opt">볼륨을 분리한 뒤 1b 인스턴스에 바로 연결</button>
+    <button class="opt">스냅숏을 만든 뒤 1b에서 새 볼륨으로 복원</button>
+    <button class="opt">Multi-Attach로 두 AZ에서 공유함</button>
+    <button class="opt">볼륨 유형을 io2로 바꿔 AZ 제약을 해제</button>
+  </div>
+  <div class="feedback"><p>EBS 볼륨은 AZ에 묶이고 같은 AZ의 인스턴스에만 붙습니다. 스냅숏은 리전의 모든 AZ에 복제되므로 1b에서 새 볼륨으로 복원하면 됩니다. Multi-Attach도 같은 AZ 안에서만 되고, 볼륨 유형은 AZ 제약과 관계없습니다. AZ는 독립된 장애 단위라는 0016의 내용이 여기서 설계 제약으로 나타납니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q8. 온프레미스 NetApp 스토리지에서 Linux 앱은 NFS, Windows 앱은 SMB, DB 서버는 iSCSI LUN을 씁니다. 운영 방식을 크게 바꾸지 않고 관리형 서비스로 옮기려 합니다.</p>
+  <div class="options">
+    <button class="opt">FSx for Windows File Server</button>
+    <button class="opt">Amazon EFS 파일 시스템(Regional)</button>
+    <button class="opt">Amazon FSx for NetApp ONTAP</button>
+    <button class="opt">FSx for OpenZFS 파일 시스템으로 이전</button>
+  </div>
+  <div class="feedback"><p>NFS + SMB + iSCSI 멀티 프로토콜, 그리고 "NetApp"이라는 단어가 곧 FSx for NetApp ONTAP입니다. SnapMirror로 직접 이전 경로도 있습니다. FSx for Windows는 SMB, EFS와 OpenZFS는 NFS 중심이라 iSCSI LUN 요구를 만족하지 못합니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) EBS 여섯 유형을 SSD/HDD로 나누고, 각각 한 줄 용도와 부팅 가능 여부를. (2) gp3와 gp2의 성능 모델 차이. (3) EFS와 FSx 네 종류를 "프로토콜 · 결정적 키워드"로.</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) SSD: gp3(대부분, 기본 선택), gp2(이전 세대), io2 Block Express(최고 IOPS, 밀리초 미만), io1(16,000 IOPS 초과 DB). HDD: st1(빅데이터·로그 순차 처리), sc1(콜드, 최저가). HDD 두 개는 부팅 불가. Multi-Attach는 io1·io2만.</p>
+    <p>(2) gp3: 크기와 무관하게 3,000 IOPS · 125 MiB/s 기본, IOPS·처리량 별도 추가, GiB당 20% 저렴. gp2: GiB당 3 IOPS로 크기에 비례, 1TiB 미만은 크레딧으로 3,000까지 버스트.</p>
+    <p>(3) EFS: NFS, Linux, 서버리스, 여러 AZ. FSx for Windows: SMB, AD. Lustre: HPC·ML, S3 연결. ONTAP: NFS·SMB·iSCSI 멀티 프로토콜, NetApp. OpenZFS: NFS, ZFS·Linux 파일 서버 이전.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volume-types.html">"Amazon EBS volume types"</a>. SSD 표와 HDD 표 두 개가 시험 문제의 원천입니다. 파일 서비스 쪽은 <a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">"Choosing an AWS storage service"</a>의 Choose 표를 함께 보세요. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 소액 과금 가능)</strong>: 프리 티어 인스턴스의 루트 볼륨을 콘솔에서 "볼륨 수정"으로 gp2 → gp3로 바꿔 보세요(이미 gp3라면 IOPS 값만 살펴봅니다). 스냅숏을 하나 만들어 다른 AZ에서 볼륨으로 복원해 보면 AZ 제약이 몸으로 이해됩니다. 실습 후 만든 볼륨과 스냅숏은 꼭 삭제하세요. 스냅숏도 저장 요금이 붙습니다.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. 특히 Q2(st1 vs sc1)와 Q5(Lustre vs EFS)는 "더 싸 보이는 답", "더 익숙한 답"에 끌리기 쉬운 문제입니다. 어떤 근거로 골랐는지 말해 주면 다음 복습에 반영하겠습니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/decision-guides/latest/storage-on-aws-how-to-choose/choosing-aws-storage-service.html">AWS Decision Guide, Choosing an AWS storage service</a></li>
+<li><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volumes.html">Amazon EBS, Amazon EBS volumes</a></li>
+<li><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volume-types.html">Amazon EBS, Amazon EBS volume types</a></li>
+<li><a href="https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html">Amazon EBS, General Purpose SSD volumes</a></li>
+<li><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-volumes-multi.html">Amazon EBS, Attach an EBS volume to multiple EC2 instances using Multi-Attach</a></li>
+<li><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-snapshots.html">Amazon EBS, Amazon EBS snapshots</a></li>
+<li><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-fast-snapshot-restore.html">Amazon EBS, Amazon EBS fast snapshot restore</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/InstanceStorage.html">Amazon EC2, Instance store temporary block storage</a></li>
+<li><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-store-lifetime.html">Amazon EC2, Data persistence for instance store volumes</a></li>
+<li><a href="https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html">Amazon EFS, What is Amazon Elastic File System?</a></li>
+<li><a href="https://docs.aws.amazon.com/efs/latest/ug/how-it-works.html">Amazon EFS, How Amazon EFS works</a></li>
+<li><a href="https://docs.aws.amazon.com/efs/latest/ug/features.html">Amazon EFS, Features of Amazon EFS (file system types, storage classes)</a></li>
+<li><a href="https://docs.aws.amazon.com/fsx/latest/WindowsGuide/what-is.html">Amazon FSx, What is FSx for Windows File Server?</a></li>
+<li><a href="https://docs.aws.amazon.com/fsx/latest/LustreGuide/what-is.html">Amazon FSx, What is Amazon FSx for Lustre?</a></li>
+<li><a href="https://docs.aws.amazon.com/fsx/latest/ONTAPGuide/what-is-fsx-ontap.html">Amazon FSx, What is Amazon FSx for NetApp ONTAP?</a></li>
+<li><a href="https://docs.aws.amazon.com/fsx/latest/OpenZFSGuide/what-is-fsx.html">Amazon FSx, What is Amazon FSx for OpenZFS?</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0018-s3-storage-classes-lifecycle.html">← 0018 S3 스토리지 클래스와 수명 주기</a></span>
+  <span><a href="0020-hybrid-storage-and-transfer.html">다음: 0020 하이브리드 스토리지와 데이터 전송 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

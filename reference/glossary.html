@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAA 용어집</title>
+<link rel="stylesheet" href="../assets/course.css">
+<style>
+  dl { margin: 1rem 0; }
+  dt { font-family: var(--sans); font-weight: 700; margin-top: 1.1rem; }
+  dd { margin: .2rem 0 0; }
+  dd .avoid { display: block; font-size: .85rem; color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+<main>
+<p class="kicker">레퍼런스 · 용어집</p>
+<h1>SAA 용어집</h1>
+<p class="lede">이 코스의 표준 용어입니다. 레슨과 학습 기록은 모두 이 표현을 씁니다. 사용자가 이해를 보여준 용어만 올립니다.</p>
+
+<h2>IAM · 정책 평가</h2>
+<dl>
+  <dt>자격 증명 기반 정책 (identity-based policy)</dt>
+  <dd>IAM 사용자·그룹·역할에 연결되어, 그 자격 증명이 어떤 Action을 어떤 Resource에 할 수 있는지 정하는 정책. Principal 요소를 쓰지 않는다.
+    <span class="avoid">피할 표현: 사용자 정책, IAM 정책(너무 넓음)</span></dd>
+
+  <dt>일치 (match)</dt>
+  <dd>요청의 Action과 Resource가 한 Statement의 Action과 Resource에 둘 다 맞는 상태.</dd>
+
+  <dt>암묵적 거부 (implicit deny)</dt>
+  <dd>일치하는 Allow가 하나도 없어서 기본값으로 거부된 결과. Allow를 추가하면 풀린다.
+    <span class="avoid">피할 표현: 기본 거부, 권한 없음</span></dd>
+
+  <dt>명시적 거부 (explicit deny)</dt>
+  <dd>일치하는 <code>"Effect": "Deny"</code> Statement 때문에 거부된 결과. 어떤 Allow로도 풀리지 않는다.
+    <span class="avoid">피할 표현: 강제 거부, 하드 Deny</span></dd>
+
+  <dt>최소 권한 (least privilege)</dt>
+  <dd>작업에 필요한 Action과 Resource만 허용하는 원칙.</dd>
+</dl>
+
+<p class="muted" style="font-size:.85rem">출처: <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html">IAM 정책 평가 로직</a> · 관련 레슨: <a href="../lessons/0001-iam-policy-evaluation.html">0001</a></p>
+</main>
+</body>
+</html>

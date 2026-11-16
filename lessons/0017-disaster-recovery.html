@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>재해 복구 전략</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0017 · 도메인 2 복원력 (26%) · Task 2.2</p>
+<h1>얼마나 잃고, 얼마나 기다릴 수 있나:<br>RPO/RTO와 DR 전략 네 가지</h1>
+<p class="lede">0016이 AZ 장애를 견디는 설계였다면, 오늘은 <strong>리전 전체</strong>를 잃거나 데이터가 망가지는 재해를 다룹니다. 기준은 AWS 백서 "Disaster Recovery of Workloads on AWS"입니다. 다 익히면 "RPO·RTO와 예산이 주어질 때 어떤 DR 전략?" 문제를 풀 수 있습니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/decoupling-and-resilience.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>왜 이것부터인가</h2>
+<ul>
+  <li><strong>시험에서</strong>: 지문에 RPO·RTO 숫자와 "가장 비용 효율적인"이 함께 나오면 네 전략 중 하나를 고르는 문제입니다. 요구를 충족하는 <em>가장 싼</em> 전략이 정답입니다.</li>
+  <li><strong>실무에서</strong>: DR 목표는 기술팀이 아니라 비즈니스가 정합니다. 그 목표를 비용으로 번역하는 것이 아키텍트의 일입니다.</li>
+</ul>
+
+<h2>RPO와 RTO</h2>
+<table>
+<tr><th></th><th>RPO (Recovery Point Objective)</th><th>RTO (Recovery Time Objective)</th></tr>
+<tr><td>백서 정의</td><td>마지막 데이터 복구 지점 이후 허용 가능한 <strong>최대 시간</strong>. 즉 허용 가능한 <strong>데이터 손실</strong></td><td>서비스 중단부터 복원까지 허용 가능한 <strong>최대 지연</strong>. 즉 허용 가능한 <strong>다운타임</strong></td></tr>
+<tr><td>질문</td><td>"몇 분 치 데이터를 잃어도 되나?"</td><td>"몇 분 안에 다시 서비스해야 하나?"</td></tr>
+<tr><td>무엇이 결정하나</td><td>백업·복제 <strong>빈도</strong></td><td>복구 절차의 <strong>속도</strong>(무엇이 이미 켜져 있나)</td></tr>
+</table>
+<p class="muted" style="font-size:.85rem">정의 출처: <a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/business-continuity-plan-bcp.html">DR 백서, Business Continuity Plan</a> [1]. 두 목표 모두 조직이 정합니다.</p>
+<p>백서는 복구 전략 비용이 장애·손실 비용보다 크면 규제 같은 별도 이유가 없는 한 도입하지 말라고 하고, 같은 리전의 AZ들이 의미 있는 거리를 두고 있어 <strong>다중 AZ 아키텍처만으로도</strong> 위험 완화 요구의 상당 부분을 충족할 수 있다고 말합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/business-continuity-plan-bcp.html">[1]</a></sup></p>
+
+<h2>DR 전략 네 가지</h2>
+<figure>
+<svg viewBox="0 0 600 190" role="img" aria-label="DR 전략 스펙트럼: 백업 및 복원, 파일럿 라이트, 웜 스탠바이, 다중 사이트 액티브-액티브 순으로 비용과 복잡성은 커지고 RPO와 RTO는 작아짐" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah17" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <g font-size="12" fill="var(--fg)" text-anchor="middle">
+    <rect x="10" y="30" width="130" height="64" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/><text x="75" y="57">백업 및 복원</text><text x="75" y="77" font-size="11" fill="var(--muted)">데이터만 DR 리전에</text>
+    <rect x="160" y="30" width="130" height="64" rx="8" fill="none" stroke="var(--fg)"/><text x="225" y="57">파일럿 라이트</text><text x="225" y="77" font-size="11" fill="var(--muted)">DB는 켜짐, 앱은 꺼짐</text>
+    <rect x="310" y="30" width="130" height="64" rx="8" fill="none" stroke="var(--fg)"/><text x="375" y="57">웜 스탠바이</text><text x="375" y="77" font-size="11" fill="var(--muted)">축소판이 계속 동작</text>
+    <rect x="460" y="30" width="130" height="64" rx="8" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="525" y="57">다중 사이트</text><text x="525" y="77" font-size="11" fill="var(--muted)">모든 리전이 트래픽 처리</text>
+  </g>
+  <line x1="20" y1="125" x2="580" y2="125" stroke="var(--muted)" marker-end="url(#ah17)"/>
+  <text x="300" y="118" text-anchor="middle" font-size="12" fill="var(--muted)">비용 · 복잡성 증가 →</text>
+  <line x1="580" y1="160" x2="20" y2="160" stroke="var(--muted)" marker-end="url(#ah17)"/>
+  <text x="300" y="153" text-anchor="middle" font-size="12" fill="var(--muted)">← RPO · RTO 증가 (더 많이 잃고 더 오래 걸림)</text>
+</svg>
+</figure>
+
+<table>
+<tr><th>전략</th><th>DR 리전에 무엇이 있나</th><th>장애 시 할 일</th><th>주의점</th></tr>
+<tr><td><strong>백업 및 복원</strong></td><td>백업(스냅샷 등)을 DR 리전으로 복사</td><td>인프라·설정·코드를 <strong>재배포</strong>하고 데이터 복원</td><td>IaC(CloudFormation, CDK) 없이는 복원이 복잡해져 RTO 초과 위험. AMI도 백업<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></td></tr>
+<tr><td><strong>파일럿 라이트</strong></td><td>데이터 복제와 핵심 인프라. DB·객체 스토리지는 <strong>항상 켜짐</strong>, 앱 서버는 <strong>"꺼짐"</strong>(모범 사례는 아예 배포하지 않고 배포 준비만)</td><td>앱 서버를 <strong>켜고</strong> 확장</td><td>추가 조치 없이는 요청을 처리하지 못함<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></td></tr>
+<tr><td><strong>웜 스탠바이</strong></td><td>운영 환경의 <strong>축소판이지만 완전히 동작하는</strong> 사본</td><td><strong>확장만</strong> 하면 됨</td><td>줄어든 용량으로 <strong>즉시</strong> 트래픽 처리 가능. 지속적 테스트가 쉬움<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></td></tr>
+<tr><td><strong>다중 사이트 액티브/액티브</strong></td><td>여러 리전에서 동시에 운영, 모든 리전이 트래픽 처리</td><td>장애 조치 개념 없음. 실패한 리전에서 트래픽을 빼냄</td><td>가장 복잡하고 비쌈. 대부분의 재해에서 복구 시간 거의 0. 단 데이터 손상은 백업에 의존<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></td></tr>
+</table>
+<p><strong>파일럿 라이트 vs 웜 스탠바이</strong>(백서도 헷갈리기 쉽다고 인정하는 지점): 파일럿 라이트는 서버를 "켜고" 추가 인프라를 배포하고 확장해야 하고, 웜 스탠바이는 이미 모두 배포되어 돌고 있어 확장만 하면 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup> DR 리전에 운영 부하 전체를 감당할 용량을 미리 둔 것은 <strong>핫 스탠바이</strong>(액티브/패시브)라 부릅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></p>
+
+<h2>교차 리전 복제 패턴</h2>
+<ul>
+  <li><strong>연속 비동기 복제</strong>(낮은 RPO): S3 복제, RDS 교차 리전 읽기 전용 복제본, Aurora 글로벌 데이터베이스, DynamoDB 글로벌 테이블, DocumentDB 글로벌 클러스터, ElastiCache Global Datastore.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></li>
+  <li><strong>Aurora 글로벌 데이터베이스</strong>는 보조 리전으로 보통 1초 미만 지연으로 복제하고, 리전 전체 장애 시에도 보조 리전을 1분 이내에 읽기/쓰기로 승격할 수 있습니다. RDS(Aurora 제외) 읽기 전용 복제본 승격은 몇 분 걸리고 재부팅이 포함됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup> (자세히는 레슨 0021·0022)</li>
+  <li><strong>복제 ≠ 백업</strong>: 연속 복제는 데이터 손상이나 악의적 삭제까지 그대로 복제할 수 있습니다. 버전 관리나 특정 시점 복구 백업을 함께 둬야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></li>
+  <li><strong>트래픽 전환</strong>: Route 53 상태 확인 기반 DNS 장애 조치(데이터 플레인 작업이라 신뢰성 높음) 또는 Global Accelerator. 백서는 장애 조치에 컨트롤 플레인이 아닌 <strong>데이터 플레인</strong> 작업만 쓰라고 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></li>
+</ul>
+
+<h3>대기 리전의 서비스 할당량</h3>
+<p>파일럿 라이트·웜 스탠바이는 장애 시 Auto Scaling으로 DR 리전을 운영 규모까지 늘립니다. 백서는 <strong>DR 리전의 서비스 할당량을 충분히 높게 설정</strong>해 운영 용량까지 확장하는 데 막히지 않게 하라고 명시합니다. 또 Auto Scaling은 컨트롤 플레인 작업이라 여기에 의존하면 복구 전략의 복원력이 낮아지는 트레이드오프가 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup> 그리고 어떤 전략이든 정기적으로 <strong>테스트</strong>해야 실제로 꺼낼 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></p>
+
+<h2>AWS Backup</h2>
+<table>
+<tr><th>기능</th><th>내용</th></tr>
+<tr><td>중앙 관리</td><td>여러 AWS 서비스(EC2, EBS, RDS, Aurora, DynamoDB, EFS, FSx, S3 등)의 백업을 한곳에서 정책으로 관리<sup class="cite"><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html">[3]</a></sup></td></tr>
+<tr><td>백업 계획</td><td>언제·어떻게 백업할지 정한 정책. 리소스를 할당(태그 기반 포함)하면 자동으로 백업·보존<sup class="cite"><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/about-backup-plans.html">[5]</a></sup></td></tr>
+<tr><td>수명 주기</td><td>웜 스토리지에서 저렴한 콜드 스토리지로 자동 전환<sup class="cite"><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html">[3]</a></sup></td></tr>
+<tr><td>교차 리전 · 교차 계정</td><td>백업 계획의 일부로 다른 리전에 자동 복사. Organizations 안에서 백업 정책으로 여러 계정에 계획을 적용하고, 다른 계정으로도 복사<sup class="cite"><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html">[3]</a></sup></td></tr>
+<tr><td>Vault Lock</td><td>루트 사용자를 포함해 누구도 백업을 삭제하거나 보존 기간을 바꾸지 못하게 하는 WORM. <strong>거버넌스 모드</strong>는 충분한 IAM 권한이 있으면 해제 가능, <strong>규정 준수 모드</strong>는 유예 기간(최소 3일)이 지나면 고객도 AWS도 변경·삭제 불가<sup class="cite"><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/vault-lock.html">[4]</a></sup></td></tr>
+</table>
+<p>DR 백서는 AWS Backup이 예약·자동 복원은 제공하지 않으므로, 필요하면 SDK로 복원을 자동화하고 백업을 정기적으로 복원 테스트하라고 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">[2]</a></sup></p>
+
+<div class="callout">
+<p class="label">시험 단골</p>
+<ul>
+  <li>"가장 저렴한", RPO·RTO가 몇 시간 이상 허용 → <strong>백업 및 복원</strong> (교차 리전 복사 + IaC)</li>
+  <li>"DB는 계속 복제, 앱 서버는 장애 시에만", "최소 비용으로 백업보다 빠르게" → <strong>파일럿 라이트</strong></li>
+  <li>"축소된 규모로 항상 실행", "즉시 트래픽 처리 후 확장" → <strong>웜 스탠바이</strong></li>
+  <li>"다운타임·데이터 손실 거의 0", "여러 리전에서 동시 서비스" → <strong>다중 사이트 액티브/액티브</strong></li>
+  <li>"DR 리전에서 확장 실패" → <strong>DR 리전 서비스 할당량</strong> 미리 상향 + 정기 테스트</li>
+  <li>"랜섬웨어·관리자도 백업 삭제 불가" → <strong>AWS Backup Vault Lock(규정 준수 모드)</strong></li>
+  <li>"여러 계정 백업을 중앙에서", "다른 리전에 백업 사본" → <strong>AWS Backup</strong> 백업 계획 + Organizations + 교차 리전 복사</li>
+</ul>
+</div>
+
+<h2>연습</h2>
+<p>기억으로 푸세요.</p>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 비즈니스 요구: "장애가 나도 최근 15분 이내 데이터만 잃는다면 괜찮고, 서비스는 2시간 안에 복구돼야 한다." 이것을 DR 목표로 옮기면?</p>
+  <div class="options">
+    <button class="opt">RTO 15분, RPO 2시간</button>
+    <button class="opt">RPO 15분, SLA 2시간</button>
+    <button class="opt">RPO 15분, RTO 2시간</button>
+    <button class="opt">RTO 15분, SLA 2시간</button>
+  </div>
+  <div class="feedback"><p>잃어도 되는 데이터의 양(마지막 복구 지점 이후 시간)이 <strong>RPO</strong>, 다시 서비스하기까지 허용되는 시간이 <strong>RTO</strong>입니다. "Point"는 데이터가 어느 시점까지 남아 있나, "Time"은 얼마나 오래 멈춰 있나로 기억하세요.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. 사내 보고서 시스템이 단일 리전에서 돕니다. 리전 재해 시 하루 안에만 복구하면 되고, 몇 시간 치 데이터 손실도 허용됩니다. DR 비용은 최소여야 합니다. 가장 적합한 전략은?</p>
+  <div class="options">
+    <button class="opt">백업을 DR 리전에 복사하고 IaC로 재배포</button>
+    <button class="opt">DR 리전에 축소된 전체 스택을 상시 실행함</button>
+    <button class="opt">두 리전에서 액티브/액티브로 동시에 운영한다</button>
+    <button class="opt">DR 리전에 DB 복제본을 늘 켜 두고 대기</button>
+  </div>
+  <div class="feedback"><p>요구를 충족하는 가장 싼 전략은 <strong>백업 및 복원</strong>입니다. 백업을 DR 리전에 복사해 두고, 장애 시 CloudFormation 같은 IaC로 인프라를 재배포한 뒤 데이터를 복원합니다. 나머지 보기는 모두 DR 리전에서 무언가를 상시 실행하므로 비용이 더 듭니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q3. 백업 및 복원으로는 RTO를 맞출 수 없다는 결론이 났습니다. 그래도 비용은 최소화하고 싶어서, DR 리전에 DB는 계속 복제해 두되 애플리케이션 서버는 평소에 실행하지 않으려 합니다. 이 전략은?</p>
+  <div class="options">
+    <button class="opt">웜 스탠바이 · 확장만 하면 충분함</button>
+    <button class="opt">백업 및 복원 · IaC로 재배포함</button>
+    <button class="opt">다중 사이트 · 장애 조치가 불필요</button>
+    <button class="opt">파일럿 라이트 · 서버를 켜고 확장</button>
+  </div>
+  <div class="feedback"><p>파일럿 라이트는 데이터 복제와 핵심 인프라(DB 등)만 항상 켜 두고 앱 서버는 "꺼진" 상태로 두었다가 장애 시 켜고 확장합니다. 웜 스탠바이는 앱 서버까지 축소된 규모로 <strong>계속 실행</strong>한다는 점이 다릅니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. DR 리전이 장애 조치 직후부터 <em>줄어든 용량으로라도 즉시</em> 요청을 처리해야 하고, 이후 운영 규모로 확장하면 됩니다. 두 리전 모두에서 사용자 트래픽을 받을 필요는 없습니다. 가장 비용 효율적인 전략은?</p>
+  <div class="options">
+    <button class="opt">파일럿 라이트 · 앱 서버를 꺼 둠</button>
+    <button class="opt">웜 스탠바이 · 축소판이 상시 실행</button>
+    <button class="opt">액티브/액티브 · 모든 리전이 처리</button>
+    <button class="opt">백업 및 복원 · 장애 시에 재배포</button>
+  </div>
+  <div class="feedback"><p>"즉시 처리 + 이후 확장"은 웜 스탠바이의 정의 그대로입니다. 파일럿 라이트는 추가 조치(서버 켜기) 없이는 요청을 처리할 수 없습니다. 액티브/액티브는 두 리전 모두 트래픽을 받는 가장 비싼 전략이라, 백서도 두 리전을 다 쓰지 않을 거라면 웜 스탠바이가 더 경제적이라고 말합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1,2">
+  <p class="q-title">Q5. 웜 스탠바이 DR 훈련에서 DR 리전의 Auto Scaling 그룹이 운영 규모까지 늘어나지 못하고 인스턴스 시작이 실패했습니다. 원인은 계정의 EC2 할당량이었습니다. 재발을 막으려면? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">기본 리전의 EC2 할당량을 먼저 늘린다</button>
+    <button class="opt">DR 리전의 서비스 할당량을 미리 상향함</button>
+    <button class="opt">DR 훈련으로 확장 절차를 정기 검증한다</button>
+    <button class="opt">Route 53 가중치로 트래픽을 분산함</button>
+  </div>
+  <div class="feedback"><p>할당량은 리전별입니다. 백서는 DR 리전의 서비스 할당량을 운영 용량까지 확장할 수 있게 충분히 높이라고 명시하고, DR 전략을 정기적으로 테스트해야 실제로 꺼낼 수 있다고 강조합니다. 기본 리전 할당량은 DR 리전 확장과 무관합니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q6. 규정상 백업을 7년간 보존해야 하며, 랜섬웨어나 관리자 계정 탈취가 있어도 그 전에는 누구도(루트 사용자 포함) 백업을 지우거나 보존 기간을 줄일 수 없어야 합니다. 가장 적합한 것은?</p>
+  <div class="options">
+    <button class="opt">IAM 정책으로 백업 삭제 권한을 모두 거부한다</button>
+    <button class="opt">백업 볼트에 거버넌스 모드의 Vault Lock</button>
+    <button class="opt">백업을 다른 리전에 매일 복사하도록 설정해 둔다</button>
+    <button class="opt">백업 볼트에 규정 준수 모드 Vault Lock</button>
+  </div>
+  <div class="feedback"><p>규정 준수 모드 Vault Lock은 유예 기간이 지나면 고객도 AWS도 잠금을 바꾸거나 지울 수 없는 WORM입니다. 거버넌스 모드는 충분한 IAM 권한이 있으면 해제할 수 있어 관리자 탈취를 막지 못합니다. IAM 거부는 관리자가 정책을 고치면 그만입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q7. Aurora 글로벌 데이터베이스로 DR 리전에 1초 미만 지연으로 복제하고 있습니다. 운영자가 실수로 중요한 테이블을 삭제했고, 이 삭제도 DR 리전에 그대로 복제됐습니다. 이 설계에 빠진 것은?</p>
+  <div class="options">
+    <button class="opt">특정 시점으로 복원할 수 있는 백업 체계</button>
+    <button class="opt">보조 리전을 하나 더 추가한 글로벌 DB</button>
+    <button class="opt">DR 리전 ASG의 최대 용량 상향 설정</button>
+    <button class="opt">Route 53 기반의 DNS 장애 조치</button>
+  </div>
+  <div class="feedback"><p>연속 복제는 손상·삭제까지 복제하므로 데이터 재해를 막지 못합니다. 백서는 모든 전략에 <strong>특정 시점 복구 백업</strong>(또는 버전 관리)을 함께 두라고 합니다. 보조 리전을 늘려도 같은 삭제가 복제될 뿐입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q8. (0016 복습) 파일럿 라이트 구성에서 기본 리전 ALB가 비정상이 되면 DNS를 DR 리전 ALB로 자동 전환하려 합니다. 가장 적합한 Route 53 구성은?</p>
+  <div class="options">
+    <button class="opt">지리 위치 레코드로 리전별 사용자를 분리함</button>
+    <button class="opt">다중 값 응답 레코드에 두 ALB를 등록함</button>
+    <button class="opt">장애 조치 레코드와 상태 확인으로 구성한다</button>
+    <button class="opt">지연 시간 레코드에 두 ALB를 함께 등록</button>
+  </div>
+  <div class="feedback"><p>파일럿 라이트·웜 스탠바이는 액티브/패시브이므로 <strong>장애 조치 정책</strong>입니다(ALB는 별칭 레코드의 Evaluate Target Health로 상태 반영). 백서도 Route 53 상태 확인 기반 DNS 장애 조치를 데이터 플레인에서 이뤄지는 신뢰성 높은 작업으로 소개합니다. 다중 값·지연 시간은 평소에도 DR 리전으로 트래픽을 보내는 액티브-액티브 방식입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-types.html">[6]</a></sup></p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) RPO와 RTO의 정의. (2) DR 전략 네 가지를 싼 것부터 나열하고, 각각 "DR 리전에 무엇이 켜져 있나". (3) 파일럿 라이트와 웜 스탠바이를 한 문장으로 구분. (4) DR 리전에서 확장할 때 놓치기 쉬운 것 두 가지.</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) RPO: 마지막 복구 지점 이후 허용 가능한 최대 시간(데이터 손실). RTO: 서비스 중단부터 복원까지 허용 가능한 최대 지연(다운타임).</p>
+    <p>(2) 백업 및 복원(백업만, 장애 시 IaC로 재배포) → 파일럿 라이트(데이터 복제·DB는 켜짐, 앱 서버는 꺼짐) → 웜 스탠바이(축소판 전체 스택이 실행 중) → 다중 사이트 액티브/액티브(모든 리전이 운영 중이고 트래픽 처리).</p>
+    <p>(3) 파일럿 라이트는 서버를 켜야 요청을 처리할 수 있고, 웜 스탠바이는 줄어든 용량으로 즉시 처리하며 확장만 하면 된다.</p>
+    <p>(4) DR 리전의 서비스 할당량(리전별), 그리고 정기 DR 테스트. (+ 복제는 손상까지 복제하므로 특정 시점 백업도 필요)</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 15분)</strong>: AWS 백서 <a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">"Disaster Recovery of Workloads on AWS: Disaster recovery options in the cloud"</a>. 오늘 레슨의 원본이며, Figure 6의 전략 비교 그림은 꼭 보세요. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 소액 비용)</strong>: AWS Backup 콘솔에서 백업 계획을 하나 만들고(일일 백업, 짧은 보존 기간), 태그로 작은 EBS 볼륨 하나를 할당한 뒤 "Copy to destination"에 다른 리전을 지정해 보세요. 백업 저장과 교차 리전 전송은 과금되므로 확인 후 복구 지점과 계획을 삭제하세요. Vault Lock 규정 준수 모드는 유예 기간이 지나면 되돌릴 수 없으니 실습에서 켜지 마세요.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q3·Q4(파일럿 라이트 vs 웜 스탠바이)는 시험에서 가장 자주 헷갈리는 쌍입니다. 실무에서 "우리 서비스엔 어떤 DR이 맞을까"가 궁금하면 RPO·RTO 요구를 적어서 가져오세요. 함께 골라 봅시다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/business-continuity-plan-bcp.html">AWS Whitepaper, Disaster Recovery of Workloads on AWS: Business Continuity Plan (BCP)</a></li>
+<li><a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">AWS Whitepaper, Disaster Recovery of Workloads on AWS: Disaster recovery options in the cloud</a></li>
+<li><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html">AWS Backup, What is AWS Backup?</a></li>
+<li><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/vault-lock.html">AWS Backup, AWS Backup Vault Lock</a></li>
+<li><a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/about-backup-plans.html">AWS Backup, Backup plans</a></li>
+<li><a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-types.html">Amazon Route 53, Active-active and active-passive failover</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0016-regions-azs-route53.html">← 0016 리전·AZ와 Route 53</a></span>
+  <span><a href="0018-s3-storage-classes-lifecycle.html">다음: 0018 S3 스토리지 클래스와 수명 주기 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

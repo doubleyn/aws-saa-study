@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DB 선택과 마이그레이션</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0023 · 도메인 3 고성능 아키텍처 (24%) · Task 3.3 · 도메인 4 비용 Task 4.3</p>
+<h1>데이터 모양이 DB를 고른다:<br>목적별 데이터베이스와 DMS 마이그레이션</h1>
+<p class="lede">AWS에는 15개가 넘는 데이터베이스가 있고 시험은 "이 데이터에 맞는 DB"를 고르게 합니다. 오늘은 데이터 모델 → 서비스 매핑을 외우고, 같은 엔진(동종)과 다른 엔진(이기종) 마이그레이션에서 DMS와 Schema Conversion이 각각 무슨 일을 하는지, 그리고 비용 관점의 선택 기준을 정리합니다.</p>
+<div class="meta"><span>⏱ 약 18분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/databases.html">데이터베이스 치트시트</a></span></div>
+
+<h2>왜 이것부터인가</h2>
+<p><strong>시험에서</strong>: "친구의 친구", "사기 탐지" → 그래프, "IoT 센서 시계열" → 시계열, "페타바이트 분석·BI" → 데이터 웨어하우스, "Oracle에서 Aurora PostgreSQL로 최소 다운타임" → Schema Conversion + DMS(CDC). 보기 네 개가 모두 실존 서비스라 데이터 모델로 걸러야 합니다.<br>
+<strong>실무에서</strong>: 한 애플리케이션에 여러 DB를 섞는 것이 정상입니다. AWS도 전자상거래 예로 카탈로그는 DocumentDB, 빠른 조회는 DynamoDB, 재고·주문은 Aurora를 함께 쓰는 구성을 듭니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup></p>
+
+<h2>데이터 모델 → 서비스</h2>
+<p>AWS 선택 가이드는 OLTP 데이터베이스를 관계형과 비관계형으로 나누고, 비관계형은 키-값, 문서, 인메모리, 그래프, 시계열, 와이드 컬럼 등 특정 데이터 모델용이라고 설명합니다. 대량 데이터 분석(OLAP)은 <strong>Amazon Redshift</strong>로 안내합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup></p>
+<table>
+<tr><th>데이터 모델</th><th>서비스</th><th>언제 (시험 키워드)</th></tr>
+<tr><td>관계형</td><td>RDS (PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, Db2), Aurora</td><td>구조화된 데이터, 조인, 트랜잭션, 기존 온프레미스 관계형 이전<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup></td></tr>
+<tr><td>키-값</td><td>DynamoDB</td><td>세션 저장소, 장바구니, 엄청난 처리량, 한 자릿수 밀리초<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup></td></tr>
+<tr><td>문서</td><td>DocumentDB (MongoDB 호환)</td><td>JSON 유사 문서, 필드 단위 풍부한 쿼리. 기존 MongoDB 코드·드라이버를 그대로 사용<sup class="cite"><a href="https://docs.aws.amazon.com/documentdb/latest/developerguide/what-is.html">[2]</a></sup></td></tr>
+<tr><td>인메모리</td><td>ElastiCache (캐시), MemoryDB (내구성 있는 주 DB)</td><td>마이크로초 읽기 캐시 / 완전한 데이터 영속성이 필요한 인메모리 주 DB<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup></td></tr>
+<tr><td>그래프</td><td><strong>Neptune</strong></td><td>고도로 연결된 데이터: 추천 엔진, <strong>사기 탐지</strong>, 지식 그래프, 소셜 네트워크. Gremlin, openCypher, SPARQL<sup class="cite"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/intro.html">[3]</a></sup></td></tr>
+<tr><td>와이드 컬럼</td><td>Keyspaces (Apache Cassandra 호환)</td><td>온프레미스 Cassandra 워크로드 이전, 대량 읽기·쓰기<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup></td></tr>
+<tr><td>시계열</td><td>Timestream</td><td>IoT 데이터, 애플리케이션 지표, 자산 추적 등 타임스탬프 데이터<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup></td></tr>
+<tr><td>데이터 웨어하우스 (OLAP)</td><td><strong>Redshift</strong></td><td>대규모 분석 쿼리, 소수 컬럼 × 대량 행 집계<sup class="cite"><a href="https://docs.aws.amazon.com/redshift/latest/dg/c_columnar_storage_disk_mem_mgmnt.html">[4]</a></sup></td></tr>
+</table>
+
+<h3>Redshift가 분석에 빠른 이유: 컬럼 기반 저장</h3>
+<p>OLTP는 한 번에 몇 개 레코드의 거의 모든 컬럼을 읽고 쓰므로 행 기반 저장이 맞습니다. 데이터 웨어하우스 쿼리는 보통 <strong>매우 많은 행의 소수 컬럼</strong>만 읽으므로, 컬럼별로 블록에 저장하면 디스크 I/O가 크게 줄고 같은 타입끼리 모여 압축도 잘 됩니다. AWS 예시로 100개 컬럼 중 5개만 쓰는 쿼리는 데이터의 약 5%만 읽습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/redshift/latest/dg/c_columnar_storage_disk_mem_mgmnt.html">[4]</a></sup></p>
+
+<div class="callout">
+<p class="label">최근 변경: 오래된 문제집 주의</p>
+<p><strong>Timestream for LiveAnalytics</strong>는 2025년 6월 20일부터 <strong>신규 고객 접근이 닫혔고</strong>, 기존 워크로드는 영향이 없습니다. AWS는 신규 고객에게 <strong>Timestream for InfluxDB</strong>를 대안으로 권장합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/timestream/latest/developerguide/AmazonTimestreamForLiveAnalytics-availability-change.html">[5]</a></sup> 시험 보기에서는 여전히 "시계열 → Timestream"으로 판단하면 됩니다.<br>
+<strong>원장(ledger) DB</strong>: 현재 AWS 데이터베이스 선택 가이드(2026년 6월 갱신)의 대상 서비스 목록에는 원장 데이터베이스가 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup> 오래된 자료에서 QLDB가 나오면 공식 문서로 현재 상태를 확인하세요. 이 과정에서는 QLDB의 현재 상태를 공식 문서로 확인하지 못해 다루지 않습니다.</p>
+</div>
+
+<h2>마이그레이션: 동종 vs 이기종</h2>
+<p><strong>AWS DMS</strong>는 관계형 DB, 데이터 웨어하우스, NoSQL 등을 AWS로(또는 클라우드·온프레미스 사이에서) 옮기는 서비스입니다. 본질은 AWS 클라우드의 <strong>복제 서버</strong>로, 소스·타깃 엔드포인트를 정하고 태스크를 돌려 데이터를 옮깁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html">[6]</a></sup> 같은 엔진을 유지하는 이전도, 지원 엔진 사이의 완전한 <strong>이기종</strong> 이전도 지원합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html">[6]</a></sup></p>
+<table>
+<tr><th></th><th>동종 (homogeneous)</th><th>이기종 (heterogeneous)</th></tr>
+<tr><td>예</td><td>온프레미스 MySQL → RDS for MySQL</td><td>Oracle → Aurora PostgreSQL, SQL Server → Aurora MySQL</td></tr>
+<tr><td>스키마</td><td>엔진이 같아 변환 불필요</td><td><strong>먼저 스키마·코드 변환</strong>: DMS Schema Conversion(관리형, 웹 기반) 또는 로컬 PC용 AWS SCT<sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html">[6]</a></sup></td></tr>
+<tr><td>데이터</td><td>DMS</td><td>변환 코드를 타깃에 적용한 뒤 DMS로 데이터 이전<sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html">[6]</a></sup></td></tr>
+</table>
+<p><strong>DMS Schema Conversion</strong>은 테이블, 뷰, 저장 프로시저, 함수 등을 타깃(Aurora, RDS, Redshift) 형식으로 변환하고, 무엇이 자동 변환되고 무엇이 수작업인지 <strong>평가 보고서</strong>를 만듭니다. AWS SCT 변환 엔진 기반이며, <strong>스키마만 변환하고 데이터는 옮기지 않습니다</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/CHAP_SchemaConversion.html">[7]</a></sup></p>
+
+<h3>최소 다운타임의 열쇠: 전체 로드 + CDC</h3>
+<p>DMS 태스크 유형은 <strong>전체 로드</strong>, <strong>전체 로드 + CDC</strong>(기존 데이터를 옮긴 뒤 소스 변경을 계속 반영), <strong>CDC만</strong>입니다. CDC는 소스 엔진의 트랜잭션 로그에서 변경을 읽습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Task.CDC.html">[8]</a></sup> 그래서 소스를 계속 운영하면서 타깃을 따라잡게 한 뒤 짧게 전환(cutover)할 수 있습니다. 단, DMS CDC는 실시간 복제가 아니며 지연에 대한 SLA가 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Task.CDC.html">[8]</a></sup></p>
+
+<figure>
+<svg viewBox="0 0 600 170" role="img" aria-label="이기종 마이그레이션 흐름: 소스 Oracle에서 Schema Conversion으로 스키마를 변환해 타깃에 적용하고, DMS가 전체 로드 후 CDC로 변경을 계속 복제한 뒤 전환" style="width:100%;height:auto;font-family:var(--sans)">
+  <defs><marker id="ah23" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <rect x="15" y="55" width="110" height="50" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="70" y="78" text-anchor="middle" font-size="12" fill="var(--fg)">소스</text>
+  <text x="70" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">Oracle (운영 중)</text>
+  <rect x="200" y="15" width="190" height="44" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="295" y="34" text-anchor="middle" font-size="12" fill="var(--fg)">① Schema Conversion / SCT</text>
+  <text x="295" y="50" text-anchor="middle" font-size="11" fill="var(--muted)">스키마·코드만 변환</text>
+  <rect x="200" y="100" width="190" height="44" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/>
+  <text x="295" y="119" text-anchor="middle" font-size="12" fill="var(--fg)">② DMS 전체 로드 + CDC</text>
+  <text x="295" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">데이터 이전, 변경 계속 반영</text>
+  <rect x="465" y="55" width="120" height="50" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="525" y="78" text-anchor="middle" font-size="12" fill="var(--fg)">타깃</text>
+  <text x="525" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">Aurora PostgreSQL</text>
+  <line x1="125" y1="70" x2="196" y2="40" stroke="var(--muted)" marker-end="url(#ah23)"/>
+  <line x1="390" y1="40" x2="461" y2="68" stroke="var(--muted)" marker-end="url(#ah23)"/>
+  <line x1="125" y1="92" x2="196" y2="120" stroke="var(--muted)" marker-end="url(#ah23)"/>
+  <line x1="390" y1="120" x2="461" y2="92" stroke="var(--muted)" marker-end="url(#ah23)"/>
+  <text x="300" y="165" text-anchor="middle" font-size="11" fill="var(--muted)">동종 이전이면 ①을 건너뛰고 ②만</text>
+</svg>
+</figure>
+
+<h2>비용 효율적인 DB 선택</h2>
+<ul>
+  <li><strong>서버리스 vs 프로비저닝</strong>: AWS 서버리스 DB는 사용량 기반 과금과 내장 고가용성으로 수요에 맞춰 확장합니다. 목록: Aurora DSQL, Aurora Serverless, DynamoDB, ElastiCache, Keyspaces, Timestream for LiveAnalytics, Neptune Serverless.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup> 변동이 큰 워크로드는 Aurora Serverless(0021), 예측 불가한 키-값 트래픽은 DynamoDB 온디맨드(0022)가 맞고, 꾸준하고 예측 가능한 부하는 프로비저닝이 비용을 예측하기 쉽습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/capacity-mode.html">[9]</a></sup></li>
+  <li><strong>Aurora 스토리지 구성</strong>: I/O 비용이 전체 Aurora 비용의 <strong>25% 이상</strong>이면 I/O 요금이 없는 <strong>Aurora I/O-Optimized</strong>, 25% 미만이면 I/O 요청당 과금하는 <strong>Aurora Standard</strong>가 낫습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html">[10]</a></sup></li>
+  <li><strong>상용 라이선스 탈피</strong>: AWS는 Oracle·SQL Server 같은 상용 DB에서 Aurora로 옮기는 것을 마이그레이션 선택지로 제시하며, DMS가 더 비용 효율적인 엔진으로 전환하는 것을 돕는다고 설명합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html">[6]</a></sup></li>
+  <li><strong>재호스팅 vs 재플랫폼</strong>: EC2에 DB를 직접 설치하면 가장 빨리 이전하지만 패치·백업·가용성 운영이 남습니다. RDS로 재플랫폼하면 그 운영을 AWS가 맡습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">[1]</a></sup> "최소 운영 오버헤드"가 조건이면 관리형이 정답입니다.</li>
+</ul>
+
+<div class="callout">
+<p class="label">시험 단골: 키워드 → 정답</p>
+<ul>
+  <li>"관계", "친구의 친구", "사기 탐지", "추천", "지식 그래프" → <strong>Neptune</strong></li>
+  <li>"MongoDB 호환", "JSON 문서" → <strong>DocumentDB</strong> · "Cassandra" → <strong>Keyspaces</strong></li>
+  <li>"IoT 센서", "시간에 따른 지표" → <strong>Timestream</strong></li>
+  <li>"페타바이트 분석", "BI 대시보드", "컬럼 기반", "데이터 웨어하우스" → <strong>Redshift</strong></li>
+  <li>"인메모리인데 데이터 손실 불가(주 DB)" → <strong>MemoryDB</strong> · "캐시" → <strong>ElastiCache</strong></li>
+  <li>"다른 엔진으로 이전" → <strong>Schema Conversion(또는 SCT) + DMS</strong> · "다운타임 최소" → <strong>전체 로드 + CDC</strong></li>
+</ul>
+</div>
+
+<h2>연습</h2>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 소셜 앱이 "친구의 친구가 좋아한 상품"을 실시간 추천하려 합니다. 관계를 여러 단계로 따라가는 쿼리가 핵심이며, 관계형 DB의 다중 조인으로는 너무 느립니다. 가장 적합한 DB는?</p>
+  <div class="options">
+    <button class="opt">Redshift에 적재해서 집계로 분석함</button>
+    <button class="opt">DynamoDB에 키-값 항목으로 저장함</button>
+    <button class="opt">Neptune에 그래프 모델로 저장해 둠</button>
+    <button class="opt">Keyspaces에 와이드 컬럼으로 저장</button>
+  </div>
+  <div class="feedback"><p>Neptune은 수십억 개 관계를 저장하고 밀리초 지연으로 탐색하도록 만든 그래프 DB이며, AWS는 추천 엔진과 사기 탐지를 대표 사례로 듭니다. DynamoDB는 키 기반 조회에 강하지만 JOIN이 없고 다단계 관계 탐색에 맞지 않습니다. Redshift는 분석용입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. 공장의 센서 수만 개가 초마다 온도·진동 값을 보냅니다. 최근 데이터 추세를 실시간으로 보고, 시간 범위별 집계를 해야 합니다. 데이터 모델에 가장 맞는 서비스 범주는?</p>
+  <div class="options">
+    <button class="opt">시계열 DB인 Amazon Timestream</button>
+    <button class="opt">문서형 DB인 Amazon DocumentDB</button>
+    <button class="opt">그래프 데이터베이스 Amazon Neptune</button>
+    <button class="opt">캐시 서비스 Amazon ElastiCache</button>
+  </div>
+  <div class="feedback"><p>IoT 센서처럼 타임스탬프에 묶인 데이터는 시계열 DB의 대표 사례입니다. 참고로 Timestream for LiveAnalytics는 2025년 6월부터 신규 고객을 받지 않으며 AWS는 Timestream for InfluxDB를 권장합니다. ElastiCache는 캐시일 뿐 시계열 저장·분석용이 아닙니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q3. 분석팀이 수년 치 판매 데이터(수백 TB, 컬럼 수백 개)에서 몇 개 컬럼만 골라 지역별·월별 집계를 하는 BI 대시보드를 만듭니다. 가장 적합한 서비스는?</p>
+  <div class="options">
+    <button class="opt">RDS for MySQL 읽기 전용 복제본 추가</button>
+    <button class="opt">DynamoDB 테이블과 DAX 클러스터를 구성</button>
+    <button class="opt">ElastiCache Valkey 클러스터 모드</button>
+    <button class="opt">Amazon Redshift의 데이터 웨어하우스</button>
+  </div>
+  <div class="feedback"><p>많은 행의 소수 컬럼을 집계하는 OLAP 쿼리는 컬럼 기반 저장의 Redshift가 맞습니다. 필요한 컬럼 블록만 읽어 I/O가 크게 줄어듭니다. MySQL은 행 기반 OLTP 엔진이라 복제본을 늘려도 이런 쿼리는 느립니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q4. 회사가 온프레미스 Oracle DB(저장 프로시저 다수)를 Aurora PostgreSQL로 옮기려 합니다. 이전 중에도 Oracle은 계속 운영해야 하며 전환 다운타임을 최소화해야 합니다. 올바른 순서는?</p>
+  <div class="options">
+    <button class="opt">DMS 전체 로드 태스크만 실행해서 스키마와 저장 프로시저도 변환</button>
+    <button class="opt">Schema Conversion 변환 후 DMS 전체 로드+CDC</button>
+    <button class="opt">Oracle을 중단하고 덤프를 S3에 올려서 Aurora로 복원함</button>
+    <button class="opt">Aurora 읽기 전용 복제본을 Oracle 소스에 붙여서 승격함</button>
+  </div>
+  <div class="feedback"><p>이기종 이전이므로 먼저 DMS Schema Conversion(또는 AWS SCT)으로 스키마와 저장 프로시저를 변환해 적용하고, DMS 전체 로드+CDC로 데이터를 옮기며 변경을 계속 반영한 뒤 짧게 전환합니다. DMS 데이터 이전은 저장 프로시저 같은 코드를 변환하지 않습니다. 덤프 복원은 다운타임이 깁니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,2">
+  <p class="q-title">Q5. AWS DMS와 DMS Schema Conversion에 대한 설명으로 옳은 것은? (두 개를 고르세요)</p>
+  <div class="options">
+    <button class="opt">DMS는 서로 다른 엔진 사이의 데이터 이전도 지원한다</button>
+    <button class="opt">Schema Conversion은 데이터도 함께 옮긴다</button>
+    <button class="opt">전체 로드+CDC는 이전한 뒤에도 변경을 계속 반영한다</button>
+    <button class="opt">DMS CDC는 실시간 복제이며 지연 SLA를 보장한다</button>
+  </div>
+  <div class="feedback"><p>DMS는 지원 엔진 사이의 완전한 이기종 이전을 지원하고, 전체 로드+CDC는 기존 데이터를 옮긴 뒤 소스 변경을 계속 반영합니다. Schema Conversion은 스키마만 변환하며 데이터는 DMS가 옮깁니다. DMS CDC는 실시간 복제가 아니며 지연 SLA가 없다고 문서에 명시되어 있습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q6. 자체 관리하는 MongoDB 클러스터를 운영 부담이 적은 관리형 서비스로 옮기려 합니다. 애플리케이션 코드와 드라이버는 가능한 한 그대로 쓰고 싶습니다. 가장 적합한 것은?</p>
+  <div class="options">
+    <button class="opt">DynamoDB로 옮기고 데이터 모델을 처음부터 다시 설계</button>
+    <button class="opt">Aurora PostgreSQL JSON 컬럼에 넣어 저장</button>
+    <button class="opt">EC2 인스턴스에 MongoDB를 그대로 설치해 직접 운영</button>
+    <button class="opt">Amazon DocumentDB로 옮겨 기존 드라이버 사용</button>
+  </div>
+  <div class="feedback"><p>DocumentDB는 MongoDB 호환 관리형 서비스로, 같은 애플리케이션 코드·드라이버·도구를 쓸 수 있습니다. EC2 재호스팅은 운영 부담이 그대로이고, DynamoDB나 Aurora는 코드 변경이 큽니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q7. (0022 복습) 모바일 게임이 수백만 플레이어의 점수를 실시간으로 순위화한 상위 100명 리더보드를 보여 줘야 합니다. 점수는 계속 바뀝니다. 가장 적합한 구성은?</p>
+  <div class="options">
+    <button class="opt">ElastiCache Memcached에 점수 객체를 캐싱함</button>
+    <button class="opt">ElastiCache Valkey의 정렬 집합으로 순위 관리</button>
+    <button class="opt">Redshift에서 5분마다 순위 집계 쿼리를 돌려서 갱신함</button>
+    <button class="opt">DynamoDB에 저장하고 매번 Scan한 뒤 앱에서 정렬함</button>
+  </div>
+  <div class="feedback"><p>Valkey/Redis OSS 정렬 집합은 원소가 추가될 때마다 실시간으로 순위를 다시 매겨 리더보드 계산을 클러스터로 옮깁니다. Memcached는 단순 데이터 타입만 있어 정렬 집합이 없습니다. 매번 Scan은 비싸고 느립니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q8. (0021 연결) Aurora 클러스터의 청구서를 보니 I/O 요금이 전체 Aurora 비용의 40%입니다. 애플리케이션 변경 없이 비용을 줄이는 가장 적절한 방법은?</p>
+  <div class="options">
+    <button class="opt">클러스터 스토리지를 Aurora I/O-Optimized로 변경</button>
+    <button class="opt">Aurora 리더 복제본을 모두 지워 I/O 요청 수를 줄여 둠</button>
+    <button class="opt">Global Database를 켜서 I/O를 여러 리전에 분산함</button>
+    <button class="opt">RDS Proxy를 앞에 추가해 스토리지 I/O를 캐싱하도록 함</button>
+  </div>
+  <div class="feedback"><p>AWS 기준으로 I/O 비용이 전체의 25% 이상이면 읽기·쓰기 I/O 요금이 없는 I/O-Optimized가 유리합니다. Aurora에서는 라이터와 리더의 I/O가 같은 방식으로 집계되며, 복제본을 지우면 가용성만 잃습니다. RDS Proxy는 연결 풀링이지 I/O 캐시가 아닙니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) 관계형, 키-값, 문서, 인메모리(2개), 그래프, 와이드 컬럼, 시계열, 데이터 웨어하우스에 각각 맞는 AWS 서비스. (2) 동종과 이기종 이전의 단계 차이. (3) 다운타임을 최소화하는 DMS 태스크 유형.</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) 관계형 RDS·Aurora, 키-값 DynamoDB, 문서 DocumentDB, 인메모리 ElastiCache(캐시)·MemoryDB(내구성 주 DB), 그래프 Neptune, 와이드 컬럼 Keyspaces, 시계열 Timestream(신규 고객은 InfluxDB 권장), 데이터 웨어하우스 Redshift(컬럼 기반).</p>
+    <p>(2) 동종: DMS로 데이터만. 이기종: DMS Schema Conversion(또는 AWS SCT)으로 스키마·코드를 변환해 타깃에 적용한 뒤 DMS로 데이터 이전.</p>
+    <p>(3) 전체 로드 + CDC: 기존 데이터를 옮긴 뒤 소스 트랜잭션 로그의 변경을 계속 반영하다가 전환.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">"Choosing an AWS database service"</a>. 오늘 표의 원본인 "Choose" 섹션의 엔진별 표를 꼭 보세요. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 무료)</strong>: DMS 콘솔에서 "Schema conversion" → 마이그레이션 프로젝트 생성 화면까지만 들어가 인스턴스 프로필·데이터 공급자·마이그레이션 프로젝트 세 구성 요소를 확인해 보세요. 복제 인스턴스나 Neptune·Redshift 클러스터를 실제로 만들면 시간당 요금이 나갑니다.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. 도메인 3의 DB 파트가 여기서 끝납니다. 0021–0023을 섞은 짧은 복습 세트가 필요하면 요청해 주세요. 다음 레슨(0024)은 Kinesis, Glue, Athena 같은 데이터 수집·분석입니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/decision-guides/latest/databases-on-aws-how-to-choose/databases-on-aws-how-to-choose.html">AWS Decision Guide, Choosing an AWS database service</a></li>
+<li><a href="https://docs.aws.amazon.com/documentdb/latest/developerguide/what-is.html">Amazon DocumentDB, What is Amazon DocumentDB</a></li>
+<li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/intro.html">Amazon Neptune, What is Amazon Neptune?</a></li>
+<li><a href="https://docs.aws.amazon.com/redshift/latest/dg/c_columnar_storage_disk_mem_mgmnt.html">Amazon Redshift, Columnar storage</a></li>
+<li><a href="https://docs.aws.amazon.com/timestream/latest/developerguide/AmazonTimestreamForLiveAnalytics-availability-change.html">Amazon Timestream, Timestream for LiveAnalytics availability change</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/Welcome.html">AWS DMS, What is AWS Database Migration Service?</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/CHAP_SchemaConversion.html">AWS DMS, Converting database schemas using DMS Schema Conversion</a></li>
+<li><a href="https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Task.CDC.html">AWS DMS, Creating tasks for ongoing replication</a></li>
+<li><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/capacity-mode.html">Amazon DynamoDB, DynamoDB throughput capacity</a></li>
+<li><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html">Amazon Aurora, Aurora storage</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0022-dynamodb-and-elasticache.html">← 0022 DynamoDB와 ElastiCache</a></span>
+  <span><a href="0024-data-ingestion-and-analytics.html">다음: 0024 데이터 수집·분석 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organizations와 권한 가드레일</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+
+<p class="kicker">레슨 0003 · 도메인 1 보안 (30%) · Task 1.1</p>
+<h1>다중 계정과 권한 가드레일:<br>Organizations, SCP, 권한 경계, IAM Identity Center</h1>
+<p class="lede">0002까지는 "무엇이 허용하는가"를 봤습니다. 오늘은 "무엇이 상한선을 긋는가"를 봅니다. SCP와 권한 경계는 아무것도 허용하지 않고 오직 깎기만 합니다. 이 한 문장이 오늘의 시험 문제 절반을 풉니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/iam-policy-evaluation.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+
+<h2>왜 이것인가</h2>
+<p><strong>시험에서</strong>: "개발 계정에서는 특정 리전 밖의 리소스 생성을 막아라", "관리자 권한이 있어도 CloudTrail을 끄지 못하게 하라" 같은 문제의 정답은 대개 SCP입니다.<br>
+<strong>실무에서</strong>: 계정을 여러 개로 나누고, 사람은 IAM 사용자 대신 IAM Identity Center로 로그인시키는 것이 AWS가 권하는 기본 구조입니다.</p>
+
+<h2>AWS Organizations의 구조</h2>
+<p><strong>조직(organization)</strong>은 여러 AWS 계정을 중앙에서 관리하는 트리 구조입니다. 맨 위에 <strong>루트(root)</strong>가 하나 있고, 그 아래에 <strong>조직 단위(OU)</strong>를 중첩해 계정을 묶습니다. 조직을 만든 계정이 <strong>관리 계정(management account)</strong>이고 나머지는 <strong>회원 계정(member account)</strong>입니다. 회원 계정은 한 번에 한 조직에만 속할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_getting-started_concepts.html">[1]</a></sup></p>
+<ul>
+  <li>관리 계정은 조직 전체 요금을 내는 지불 계정이며, 바꿀 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_getting-started_concepts.html">[1]</a></sup></li>
+  <li>기능 세트는 <strong>모든 기능(all features)</strong>과 <strong>통합 결제(consolidated billing)만</strong> 두 가지입니다. SCP는 모든 기능을 켠 조직에서만 쓸 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[2]</a></sup></li>
+  <li>AWS는 관리 계정에 워크로드를 두지 말라고 권합니다. 이유는 바로 아래에서 볼 것처럼 <strong>SCP가 관리 계정을 제한하지 않기 때문</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_getting-started_concepts.html">[1]</a></sup></li>
+</ul>
+
+<h2>새 규칙 세 개</h2>
+<ol class="rules" style="counter-reset: rule 6">
+  <li><strong>SCP는 아무것도 허용하지 않는다. 상한선만 긋는다.</strong> SCP는 회원 계정의 IAM 사용자·역할이 가질 수 있는 <em>최대</em> 권한을 정합니다. 실제 권한은 여전히 자격 증명 기반 정책이나 리소스 기반 정책으로 줘야 합니다. IAM 정책이 하나도 없는 사용자는 SCP가 모든 것을 허용해도 아무것도 못 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[2]</a></sup></li>
+  <li><strong>SCP의 Allow는 루트부터 계정까지 모든 단계에 있어야 하고, Deny는 어느 한 단계에만 있어도 된다.</strong> 경로 중 한 곳이라도 Allow가 빠지면 그 아래는 암묵적 거부입니다. 그래서 SCP를 켜면 AWS가 모든 루트·OU·계정에 <code>FullAWSAccess</code>를 자동으로 붙입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps_evaluation.html">[3]</a></sup></li>
+  <li><strong>권한 경계도 상한선이다. 유효 권한은 교집합.</strong> 권한 경계는 사용자나 역할에 붙이는 관리형 정책으로, 자격 증명 기반 정책이 줄 수 있는 최대치를 정합니다. 둘 다 허용한 작업만 할 수 있습니다. SCP까지 있으면 SCP, 권한 경계, 자격 증명 기반 정책 <strong>셋 모두</strong>가 허용해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">[4]</a></sup></li>
+</ol>
+<p>0001의 규칙 3(<em>일치하는 Deny는 무조건 이긴다</em>)은 SCP와 권한 경계에도 그대로 적용됩니다. 어느 정책 유형이든 명시적 거부가 하나라도 있으면 거부입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">[4]</a></sup></p>
+
+<figure>
+<svg viewBox="0 0 560 230" role="img" aria-label="조직 트리: 루트, Prod OU, Dev OU와 계정. Dev OU의 Deny SCP는 그 아래 계정 전체에 적용되고, 관리 계정은 SCP의 영향을 받지 않음" style="width:100%;height:auto;font-family:var(--sans)">
+  <rect x="215" y="10" width="130" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="280" y="28" text-anchor="middle" font-size="13" fill="var(--fg)">루트</text>
+  <text x="280" y="43" text-anchor="middle" font-size="11" fill="var(--muted)">SCP: FullAWSAccess</text>
+  <rect x="20" y="10" width="150" height="40" rx="8" fill="none" stroke="var(--muted)" stroke-dasharray="4 3"/>
+  <text x="95" y="28" text-anchor="middle" font-size="12" fill="var(--fg)">관리 계정</text>
+  <text x="95" y="43" text-anchor="middle" font-size="11" fill="var(--muted)">SCP 영향 없음</text>
+  <line x1="280" y1="50" x2="150" y2="85" stroke="var(--muted)"/>
+  <line x1="280" y1="50" x2="410" y2="85" stroke="var(--muted)"/>
+  <rect x="80" y="85" width="140" height="44" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="150" y="104" text-anchor="middle" font-size="13" fill="var(--fg)">Prod OU</text>
+  <text x="150" y="120" text-anchor="middle" font-size="11" fill="var(--muted)">FullAWSAccess</text>
+  <rect x="340" y="85" width="140" height="44" rx="8" fill="var(--bad-soft)" stroke="var(--bad)"/>
+  <text x="410" y="104" text-anchor="middle" font-size="13" fill="var(--fg)">Dev OU</text>
+  <text x="410" y="120" text-anchor="middle" font-size="11" fill="var(--bad)">+ Deny ec2:*</text>
+  <line x1="150" y1="129" x2="150" y2="160" stroke="var(--muted)"/>
+  <line x1="410" y1="129" x2="360" y2="160" stroke="var(--muted)"/>
+  <line x1="410" y1="129" x2="470" y2="160" stroke="var(--muted)"/>
+  <rect x="95" y="160" width="110" height="36" rx="8" fill="none" stroke="var(--fg)"/>
+  <text x="150" y="183" text-anchor="middle" font-size="12" fill="var(--fg)">계정 P</text>
+  <rect x="310" y="160" width="100" height="36" rx="8" fill="none" stroke="var(--bad)"/>
+  <text x="360" y="183" text-anchor="middle" font-size="12" fill="var(--fg)">계정 D1</text>
+  <rect x="420" y="160" width="100" height="36" rx="8" fill="none" stroke="var(--bad)"/>
+  <text x="470" y="183" text-anchor="middle" font-size="12" fill="var(--fg)">계정 D2</text>
+  <text x="280" y="220" text-anchor="middle" font-size="12" fill="var(--muted)">D1·D2는 관리자 정책이 있어도 EC2 불가 · Deny는 아래로 상속됨</text>
+</svg>
+</figure>
+
+<h3>SCP가 닿지 않는 곳</h3>
+<table>
+<tr><th>대상</th><th>SCP의 영향</th></tr>
+<tr><td>회원 계정의 IAM 사용자·역할</td><td>받음</td></tr>
+<tr><td>회원 계정의 <strong>루트 사용자</strong></td><td><strong>받음</strong><sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[2]</a></sup></td></tr>
+<tr><td><strong>관리 계정</strong>의 사용자·역할</td><td><strong>받지 않음</strong></td></tr>
+<tr><td>서비스 연결 역할(service-linked role)</td><td>받지 않음</td></tr>
+<tr><td>조직 밖 계정의 주체 (버킷 정책으로 들어온 외부 사용자 등)</td><td>받지 않음. SCP는 그 계정이 관리하는 주체에만 적용됨<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[2]</a></sup></td></tr>
+</table>
+<p class="muted" style="font-size:.9rem">참고: 리소스 쪽 상한선을 긋는 <strong>RCP(resource control policy)</strong>도 있습니다. SCP가 주체 중심이라면 RCP는 리소스 중심 가드레일입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_getting-started_concepts.html">[1]</a></sup></p>
+
+<h2>평가 흐름에 끼워 넣기</h2>
+<p>0001·0002에서 본 판정을 AWS가 실제로 처리하는 순서로 다시 쓰면 이렇습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-denyallow.html">[5]</a></sup></p>
+<ol>
+  <li><strong>명시적 거부 확인</strong>: SCP·RCP·리소스 기반·자격 증명 기반·권한 경계·세션 정책 전부에서 일치하는 Deny를 찾음. 하나라도 있으면 즉시 거부.</li>
+  <li><strong>RCP</strong>: 적용되는 Allow가 없으면 거부.</li>
+  <li><strong>SCP</strong>: 적용되는 Allow가 없으면 거부.</li>
+  <li><strong>리소스 기반 정책</strong>: 같은 계정이면 여기서 허용이 나올 수 있음(규칙 4).</li>
+  <li><strong>자격 증명 기반 정책</strong>: Allow가 없으면 암묵적 거부.</li>
+  <li><strong>권한 경계</strong>: 경계가 있는데 허용하지 않으면 암묵적 거부.</li>
+  <li><strong>세션 정책</strong>: 역할 세션 등에서 전달된 경우 마찬가지로 확인.</li>
+</ol>
+<p><small>세부 예외 하나: 같은 계정에서 리소스 기반 정책이 IAM <em>사용자</em> ARN에 직접 허용하면, 자격 증명 기반 정책이나 권한 경계의 <em>암묵적</em> 거부에는 막히지 않습니다. 역할 ARN에 허용한 경우는 권한 경계의 암묵적 거부에 막힙니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">[4]</a></sup> 시험에서는 "권한 경계 = 교집합"으로 기억하면 충분합니다.</small></p>
+
+<h3>권한 경계는 언제 쓰나: 위임</h3>
+<p>대표 용도는 <strong>권한 관리의 위임</strong>입니다. 예컨대 개발자에게 IAM 사용자·역할 생성을 맡기되, <code>iam:PermissionsBoundary</code> 조건 키로 "반드시 지정한 경계 정책을 붙여서만 만들 수 있다"고 강제합니다. 그러면 개발자가 만든 주체는 경계를 넘지 못합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">[4]</a></sup></p>
+<table>
+<tr><th></th><th>SCP</th><th>권한 경계</th></tr>
+<tr><td>붙는 곳</td><td>조직의 루트·OU·계정</td><td>IAM 사용자 또는 역할 (그룹 불가)</td></tr>
+<tr><td>범위</td><td>계정 전체의 모든 주체(관리 계정 제외)</td><td>그 주체 하나</td></tr>
+<tr><td>권한 부여</td><td>안 함</td><td>안 함</td></tr>
+<tr><td>누가 관리</td><td>관리 계정(또는 위임된 관리자)</td><td>그 계정의 IAM 관리자</td></tr>
+</table>
+
+<h2>Control Tower: 잘 차려진 다중 계정</h2>
+<p><strong>AWS Control Tower</strong>는 Organizations, IAM Identity Center, Service Catalog 등을 조합해 모범 사례대로 다중 계정 환경(<strong>랜딩 존</strong>)을 구성하고 관리합니다. <strong>컨트롤(가드레일)</strong>은 예방·탐지·사전(preventive, detective, proactive) 세 종류이며, <strong>Account Factory</strong>로 승인된 구성의 새 계정을 찍어 냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/controltower/latest/userguide/what-is-control-tower.html">[6]</a></sup> 시험 보기에 "여러 계정을 모범 사례대로 빠르게 설정하고 지속적으로 거버넌스"가 나오면 Control Tower를 떠올리세요.</p>
+
+<h2>사람은 어떻게 들어오나: IAM Identity Center와 페더레이션</h2>
+<p>AWS는 사람(human user)에게 개별 IAM 사용자를 만들지 말고, <strong>자격 증명 공급자(IdP)를 통한 페더레이션</strong>으로 접근하게 하라고 권합니다. 페더레이션된 사용자는 장기 액세스 키 대신 <strong>단기 자격 증명</strong>을 받습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers.html">[7]</a></sup></p>
+<table>
+<tr><th>방식</th><th>언제</th><th>자격 증명 소스</th></tr>
+<tr><td><strong>IAM Identity Center</strong></td><td>Organizations로 묶인 <strong>여러 계정</strong>에 직원(workforce)이 접근</td><td>SAML 2.0 IdP, 관리형 Active Directory, Identity Center 디렉터리</td></tr>
+<tr><td><strong>IAM 페더레이션</strong></td><td>단일 계정, 단기·소규모 사람 접근 또는 머신(예: GitHub Actions는 OIDC)</td><td>SAML 2.0, OIDC</td></tr>
+<tr><td><strong>Amazon Cognito 자격 증명 풀</strong></td><td>모바일·웹 <strong>앱의 최종 사용자</strong></td><td>SAML, OIDC, 소셜 IdP</td></tr>
+</table>
+<p class="muted" style="font-size:.9rem">출처: IAM 사용 설명서의 페더레이션 유형 비교표<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers.html">[7]</a></sup></p>
+<p>IAM Identity Center의 핵심 부품은 <strong>권한 세트(permission set)</strong>입니다. 권한 세트를 사용자·그룹과 계정에 할당하면, Identity Center가 <strong>각 계정에 IAM 역할을 만들고</strong> 정책을 붙입니다. 사용자는 AWS 액세스 포털에서 그 역할을 맡습니다. 즉 0002의 "역할을 맡아 임시 자격 증명을 받는다"가 그대로 쓰입니다. 권한 세트의 세션 기간은 기본 1시간, 최대 12시간입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetsconcept.html">[8]</a></sup> 조직 인스턴스는 관리 계정에 배포되며, 계정 접근 관리를 위한 모범 사례입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html">[9]</a></sup></p>
+
+<div class="callout">
+<p class="label">시험 단골</p>
+<p><strong>"관리자 권한이 있어도 X를 못 하게" / "모든 계정에 일괄 적용"</strong> → SCP (Deny 문장).<br>
+<strong>"특정 서비스만 쓸 수 있게"</strong> → <code>FullAWSAccess</code>를 떼고 허용 목록 SCP.<br>
+<strong>"개발자가 역할을 만들되 자기보다 큰 권한은 못 주게"</strong> → 권한 경계 + <code>iam:PermissionsBoundary</code> 조건.<br>
+<strong>"기존 사내 디렉터리(AD) 계정으로 여러 AWS 계정에 로그인, 최소 운영 오버헤드"</strong> → IAM Identity Center.<br>
+<strong>"모바일 앱 사용자에게 S3 업로드 권한"</strong> → Cognito (IAM 사용자 생성은 오답).<br>
+<strong>"다중 계정 환경을 모범 사례대로 빠르게 구축"</strong> → Control Tower.<br>
+함정: SCP로 <em>권한을 주려는</em> 보기, 관리 계정에 SCP를 걸어 막으려는 보기는 오답입니다.</p>
+</div>
+
+<h2>연습</h2>
+<p>조직 구조는 위 그림과 같습니다. 별도 언급이 없으면 루트와 모든 OU·계정에 <code>FullAWSAccess</code>가 붙어 있습니다.</p>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q1. 계정 D1의 개발자에게 <code>AdministratorAccess</code>(모든 작업 Allow)가 붙어 있습니다. Dev OU에는 <code>ec2:*</code>를 Deny하는 SCP가 있습니다. 개발자가 RunInstances를 호출합니다.</p>
+  <div class="options">
+    <button class="opt">허용 · 자격 증명 기반 정책이 허용했음</button>
+    <button class="opt">허용 · 계정 단계 SCP가 모두 허용함</button>
+    <button class="opt">거부 · 상위 OU SCP의 명시적 거부</button>
+    <button class="opt">거부 · 권한 경계가 없어서 암묵적 거부</button>
+  </div>
+  <div class="feedback"><p>규칙 8: Deny는 경로 중 한 단계에만 있어도 됩니다. Dev OU의 Deny가 D1까지 상속되고, 명시적 거부는 어떤 Allow보다 우선합니다. AWS 문서는 "AdministratorAccess를 붙여도" 쓸 수 없다고 명시합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[2]</a></sup> 권한 경계는 선택 사항이라 없다고 거부되지 않습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0">
+  <p class="q-title">Q2. Prod OU에서 <code>FullAWSAccess</code>를 떼고 <code>s3:*</code>, <code>ec2:*</code>만 Allow하는 SCP를 붙였습니다. 루트와 계정 P에는 여전히 <code>FullAWSAccess</code>가 있습니다. 계정 P 사용자의 IAM 정책은 <code>dynamodb:*</code>를 허용합니다. DynamoDB 테이블을 조회하면?</p>
+  <div class="options">
+    <button class="opt">거부 · 경로의 한 단계에 Allow가 없음</button>
+    <button class="opt">허용 · 계정 단계의 SCP가 허용하고 있음</button>
+    <button class="opt">허용 · 루트의 전체 허용 SCP가 우선한다</button>
+    <button class="opt">거부 · 사용자 IAM 정책이 허용하지 않음</button>
+  </div>
+  <div class="feedback"><p>규칙 8의 Allow 쪽입니다. 루트→Prod OU→계정 P 경로의 <strong>모든</strong> 단계에 Allow가 있어야 하는데, Prod OU가 DynamoDB를 허용하지 않습니다. Deny 문장이 없어도 거부됩니다(암묵적 거부). 위·아래 단계의 넓은 허용이 중간 단계의 빈칸을 메워 주지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps_evaluation.html">[3]</a></sup></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q3. 보안팀이 루트에 <code>s3:DeleteBucket</code>을 Deny하는 SCP를 붙였습니다. <strong>관리 계정</strong>의 관리자(모든 작업 Allow)가 관리 계정 안의 버킷을 삭제합니다.</p>
+  <div class="options">
+    <button class="opt">거부 · 루트의 SCP는 모든 계정에 상속됨</button>
+    <button class="opt">허용 · SCP는 관리 계정에 적용되지 않음</button>
+    <button class="opt">거부 · 명시적 거부는 어디서든 항상 이긴다</button>
+    <button class="opt">허용 · 루트 사용자만 SCP의 제한을 받음</button>
+  </div>
+  <div class="feedback"><p>SCP는 회원 계정에만 적용되고 관리 계정의 사용자·역할에는 영향이 없습니다. 루트에 붙여도 마찬가지입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_getting-started_concepts.html">[1]</a></sup> "명시적 거부는 어디서든 이긴다"는 맞는 원칙이지만, 이 SCP는 애초에 관리 계정의 요청에 <em>적용되는 정책</em>이 아닙니다. 그래서 관리 계정에는 워크로드를 두지 말라는 것입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="3">
+  <p class="q-title">Q4. 사용자 Shirley의 권한 경계는 <code>s3:*</code>와 <code>cloudwatch:*</code>를 Allow합니다. 자격 증명 기반 정책은 <code>ec2:*</code>와 <code>s3:GetObject</code>를 Allow합니다. Shirley가 할 수 있는 것은?</p>
+  <div class="options">
+    <button class="opt">EC2 전체와 S3 GetObject 가능</button>
+    <button class="opt">S3 전체와 CloudWatch 전체 가능</button>
+    <button class="opt">경계와 정책의 합집합에 든 작업 모두 가능</button>
+    <button class="opt">S3 GetObject 하나만 사용 가능함</button>
+  </div>
+  <div class="feedback"><p>규칙 9: 교집합입니다. EC2는 경계가 허용하지 않고, CloudWatch는 정책이 허용하지 않습니다. 둘 다 허용하는 것은 <code>s3:GetObject</code>뿐입니다. "S3 전체와 CloudWatch"는 경계가 권한을 <em>준다</em>고 착각했을 때 고르는 보기입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">[4]</a></sup></p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q5. (시험형) 회사가 개발자들이 Lambda용 IAM 역할을 직접 만들 수 있게 하려 합니다. 단, 개발자가 만든 역할이 회사가 정한 권한 범위를 넘으면 안 됩니다. 가장 적절한 방법은?</p>
+  <div class="options">
+    <button class="opt">개발 OU에 IAM 전체 거부 SCP를 연결함</button>
+    <button class="opt">특정 권한 경계를 붙일 때만 역할 생성을 허용</button>
+    <button class="opt">개발자 전원에게 관리자 권한 정책을 직접 부여</button>
+    <button class="opt">관리 계정 SCP로 개발자 권한을 직접 부여함</button>
+  </div>
+  <div class="feedback"><p>권한 경계의 대표 용도인 <strong>위임</strong>입니다. <code>iam:PermissionsBoundary</code> 조건으로 "지정한 경계를 붙인 경우에만 생성 허용"을 강제합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">[4]</a></sup> iam:* 거부 SCP는 역할 생성 자체를 막아 요구 사항을 못 채우고, SCP는 권한을 부여하지 않습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="2">
+  <p class="q-title">Q6. (시험형) 직원 800명이 이미 사내 Active Directory 계정을 갖고 있습니다. 이들이 조직의 여러 AWS 계정에 기존 계정으로 로그인하게 하려 합니다. 운영 오버헤드가 가장 적은 방법은?</p>
+  <div class="options">
+    <button class="opt">AWS 계정마다 직원별 IAM 사용자 생성</button>
+    <button class="opt">Cognito 사용자 풀로 직원 계정 이관</button>
+    <button class="opt">Identity Center에 AD 연결함</button>
+    <button class="opt">Control Tower 계정 팩토리 사용</button>
+  </div>
+  <div class="feedback"><p>여러 계정 + 직원(workforce) + 기존 디렉터리 → IAM Identity Center입니다. Active Directory를 자격 증명 소스로 쓰고, 권한 세트를 할당하면 각 계정에 역할이 자동으로 만들어집니다.<sup class="cite"><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers.html">[7]</a></sup> Cognito는 앱 최종 사용자용이고, Account Factory는 <em>계정</em>을 찍어 내는 도구이지 사람의 로그인 수단이 아닙니다. 800명 × 계정 수만큼 IAM 사용자를 만드는 것은 최악의 오버헤드입니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="0,3">
+  <p class="q-title">Q7. SCP에 대한 설명으로 옳은 것을 <strong>두 개</strong> 고르세요.</p>
+  <div class="options">
+    <button class="opt">SCP 자체는 어떤 권한도 부여하지 않는다</button>
+    <button class="opt">관리 계정의 사용자와 역할도 제한을 받는다</button>
+    <button class="opt">서비스 연결 역할의 작업도 SCP로 막힌다</button>
+    <button class="opt">회원 계정의 루트 사용자까지 제한을 받는다</button>
+  </div>
+  <div class="feedback"><p>SCP는 권한을 주지 않는 가드레일이고, 회원 계정의 루트 사용자까지 제한합니다. 관리 계정과 서비스 연결 역할은 SCP의 영향을 받지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[2]</a></sup> 0001에서 "루트 사용자는 기본 거부의 예외"라고 했지만, 회원 계정이라면 SCP의 상한선 아래에 있습니다.</p></div>
+</div>
+
+<div class="quiz-q" data-answer="1">
+  <p class="q-title">Q8. (0002 복습) 조직의 회원 계정 A에 버킷이 있고, 계정 A에는 <code>s3:GetObject</code>를 Deny하는 SCP가 붙어 있습니다. 버킷 정책은 <strong>조직 밖</strong> 계정 C의 사용자 carol에게 GetObject를 허용하고, carol의 자격 증명 기반 정책도 허용합니다. carol이 GetObject 합니다.</p>
+  <div class="options">
+    <button class="opt">거부 · 계정 A의 SCP가 명시적으로 막음</button>
+    <button class="opt">허용 · SCP는 계정 A의 주체에만 적용됨</button>
+    <button class="opt">거부 · 교차 계정은 한쪽만 허용하면 거부됨</button>
+    <button class="opt">허용 · 같은 계정이라 한쪽 허용으로 충분함</button>
+  </div>
+  <div class="feedback"><p>SCP는 그 계정이 <em>관리하는 주체</em>(사용자·역할)에만 적용되고, 리소스 기반 정책이나 조직 밖 사용자에게는 직접 영향을 주지 않습니다. AWS 문서가 바로 이 버킷 예시를 듭니다.<sup class="cite"><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">[2]</a></sup> 나머지는 0002의 규칙 5대로 양쪽(carol의 정책, 버킷 정책)이 모두 허용했으니 허용입니다. 리소스 쪽을 조직 차원에서 막고 싶다면 RCP를 쓰는 것이 맞습니다.</p></div>
+</div>
+
+<div class="quiz-score" data-quiz-score></div>
+
+<h2>기억에서 꺼내기</h2>
+<div class="recall">
+  <p>보지 말고 써 보세요. (1) SCP의 Allow와 Deny는 조직 트리에서 각각 어떻게 작동하나? (2) SCP의 영향을 받지 않는 대상 두 가지는? (3) SCP, 권한 경계, 자격 증명 기반 정책이 모두 있을 때 유효 권한은?</p>
+  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <button data-reveal>답 확인</button>
+  <div class="answer">
+    <p>(1) Allow는 루트부터 대상 계정까지 <strong>모든</strong> 단계에 있어야 하고, Deny는 경로 중 <strong>어느 한</strong> 단계에만 있어도 아래 전체에 적용됩니다. SCP는 권한을 부여하지 않습니다.</p>
+    <p>(2) 관리 계정의 사용자·역할, 서비스 연결 역할. (조직 밖 주체도 직접 영향 없음.) 회원 계정의 루트 사용자는 <strong>영향을 받습니다</strong>.</p>
+    <p>(3) 셋의 <strong>교집합</strong>. 셋 중 하나라도 명시적 거부가 있으면 거부.</p>
+  </div>
+</div>
+
+<h2>더 해볼 것</h2>
+<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps_evaluation.html">"SCP evaluation"</a>. 시나리오 7개의 그림으로 Allow·Deny 상속을 보여 줍니다. Q2가 헷갈렸다면 특히 시나리오 2와 7을 보세요. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
+<p><strong>실습 (선택, 무료)</strong>: 내 계정에서 IAM 사용자 하나에 권한 경계로 <code>AmazonS3ReadOnlyAccess</code>를 지정하고, 권한 정책으로는 <code>AdministratorAccess</code>를 붙여 보세요. 콘솔에서 EC2 화면을 열면 막히는 것을 확인할 수 있습니다. SCP 실습은 조직을 만들어야 하므로, 개인 계정이라면 문서의 그림으로 대신해도 충분합니다.</p>
+
+<div class="callout">
+<p class="label">질문하세요</p>
+<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q2(중간 단계에 Allow가 빠진 경우)와 Q8(조직 밖 주체에는 SCP가 안 닿음)은 규칙을 정확히 알아야 풀리는 문제라, 어떻게 판단했는지 들려주면 다음 복습 문제를 맞추는 데 도움이 됩니다.</p>
+</div>
+
+<h3>출처</h3>
+<ol class="muted" style="font-size:.85rem">
+<li><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_getting-started_concepts.html">AWS Organizations, Terminology and concepts</a></li>
+<li><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html">AWS Organizations, Service control policies (SCPs)</a></li>
+<li><a href="https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps_evaluation.html">AWS Organizations, SCP evaluation</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html">AWS IAM, Permissions boundaries for IAM entities</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-denyallow.html">AWS IAM, How AWS enforcement code logic evaluates requests</a></li>
+<li><a href="https://docs.aws.amazon.com/controltower/latest/userguide/what-is-control-tower.html">AWS Control Tower, What is AWS Control Tower?</a></li>
+<li><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers.html">AWS IAM, Identity providers and federation into AWS</a></li>
+<li><a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetsconcept.html">IAM Identity Center, Manage AWS accounts with permission sets</a></li>
+<li><a href="https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html">IAM Identity Center, What is IAM Identity Center?</a></li>
+</ol>
+
+<div class="nav">
+  <span><a href="0002-resource-policies-and-roles.html">← 0002 리소스 기반 정책과 역할</a></span>
+  <span><a href="0004-vpc-subnets-routing.html">다음: 0004 VPC 기초 →</a></span>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

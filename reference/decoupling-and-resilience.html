@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>느슨한 결합과 복원력</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<main>
+<p class="kicker">레퍼런스 · 도메인 2 복원력</p>
+<h1>느슨한 결합과 복원력 치트시트</h1>
+<p class="lede">메시징, API, 워크플로, 캐시, 리전·AZ, Route 53, DR을 한 장에. 레슨 <a href="../lessons/0014-sqs-sns-eventbridge.html">0014</a> · <a href="../lessons/0015-api-gateway-step-functions.html">0015</a> · <a href="../lessons/0016-regions-azs-route53.html">0016</a> · <a href="../lessons/0017-disaster-recovery.html">0017</a>.</p>
+
+<h2>SQS · SNS · EventBridge <small class="muted">(0014)</small></h2>
+<table>
+<tr><th></th><th>SQS</th><th>SNS</th><th>EventBridge</th></tr>
+<tr><td>방식</td><td>소비자가 폴링, 메시지당 소비자 하나</td><td>구독자 전원에게 푸시(팬아웃)</td><td>규칙의 이벤트 패턴으로 라우팅, 규칙당 대상 최대 5개</td></tr>
+<tr><td>언제</td><td>버퍼링, 비동기 작업</td><td>하나의 이벤트를 여러 곳에, 알림</td><td>AWS 서비스·SaaS 파트너 이벤트, 일정(Scheduler)</td></tr>
+</table>
+<table>
+<tr><th>SQS</th><th>표준</th><th>FIFO</th></tr>
+<tr><td>처리량</td><td>사실상 무제한</td><td>초당 300건(배치 시 3,000메시지), 높은 처리량 모드로 확장</td></tr>
+<tr><td>전달 · 순서</td><td>최소 한 번(멱등하게) · 최선 노력</td><td>정확히 한 번 처리(5분 중복 제거) · 메시지 그룹 안에서 순서</td></tr>
+</table>
+<ul>
+  <li><strong>가시성 제한 시간</strong>: 기본 30초, 최대 12시간. 처리 시간보다 짧으면 중복 처리. Lambda 소비자는 함수 제한 시간의 6배 이상</li>
+  <li><strong>DLQ</strong>: <code>maxReceiveCount</code> 초과 메시지 격리. 원본과 같은 계정·리전·유형. 표준 큐 DLQ 보존 기간은 원본보다 길게</li>
+  <li><strong>긴 폴링</strong>: <code>WaitTimeSeconds</code> &gt; 0, 최대 20초. 빈 응답·비용 감소</li>
+  <li><strong>보존</strong> 기본 4일·최대 14일 · <strong>지연</strong> 최대 15분</li>
+  <li><strong>SNS → SQS</strong>: 큐 정책이 <code>sns.amazonaws.com</code>에 <code>sqs:SendMessage</code> 허용(+<code>aws:SourceArn</code>). 순서·중복 제거는 SNS FIFO + SQS FIFO(이메일·SMS·HTTP 불가)</li>
+  <li><strong>큐 깊이로 확장</strong>: 대상 추적, 지표 = 인스턴스당 백로그(메시지 수 ÷ InService 수), 목표 = 허용 지연 ÷ 메시지당 처리 시간</li>
+</ul>
+
+<h2>API Gateway · Step Functions · 캐시 <small class="muted">(0015)</small></h2>
+<table>
+<tr><th>REST API에만</th><td>API 키·사용량 계획(클라이언트별 스로틀링), 캐싱, WAF, 리소스 정책, 요청 검증, 엣지 최적화·프라이빗 엔드포인트</td></tr>
+<tr><th>HTTP API</th><td>기능을 줄여 더 저렴. 리전 엔드포인트만. JWT 권한 부여자</td></tr>
+<tr><th>스로틀링</th><td>토큰 버킷, 계정 기본 리전당 초당 10,000건 · 버스트 5,000. 초과 시 <code>429</code></td></tr>
+<tr><th>통합 시간 제한</th><td>50ms~29초 (리전·프라이빗은 상향 가능, 엣지 최적화는 불가)</td></tr>
+<tr><th>API 캐시</th><td>스테이지 단위, TTL 기본 300초·최대 3600초, 기본 GET만, 시간당 과금</td></tr>
+</table>
+<table>
+<tr><th>Step Functions</th><th>Standard</th><th>Express</th></tr>
+<tr><td>최대 실행</td><td>1년</td><td>5분</td></tr>
+<tr><td>실행 보장</td><td>정확히 한 번(비멱등 작업)</td><td>비동기 최소 한 번 · 동기 최대 한 번(멱등 작업)</td></tr>
+<tr><td>요금</td><td>상태 전환 수</td><td>실행 수·시간·메모리</td></tr>
+<tr><td>콜백·.sync</td><td>지원</td><td>미지원</td></tr>
+</table>
+<ul>
+  <li>Lambda 최대 15분 · SQS 가시성 최대 12시간 → 더 긴 흐름은 Step Functions</li>
+  <li>캐시 계층: <strong>CloudFront</strong>(엣지, 기본 24시간) → <strong>API Gateway 캐시</strong> → <strong>ElastiCache</strong>(DB 쿼리 결과·세션, 1밀리초 미만)</li>
+  <li><strong>상태 비저장</strong>(REL05-BP06): 세션을 ElastiCache·DynamoDB·EFS·MemoryDB로 → 수평 확장, 인스턴스 교체 자유</li>
+</ul>
+
+<h2>리전 · AZ · Route 53 <small class="muted">(0016)</small></h2>
+<ul>
+  <li><strong>리전</strong>: 최소 3개 AZ, 리전끼리 격리. 복제하지 않으면 데이터는 다른 리전에 없음</li>
+  <li><strong>AZ</strong>: 독립 전력·네트워크의 데이터 센터 묶음, 최대 약 100km 거리, 동기 복제 가능 지연</li>
+  <li><strong>정적 안정성</strong>: 남은 AZ만으로 충분하도록 사전 프로비저닝(6대 필요 → 3 AZ × 3대)</li>
+</ul>
+<table>
+<tr><th>정책</th><th>키워드</th></tr>
+<tr><td>단순</td><td>리소스 하나</td></tr>
+<tr><td>가중치</td><td>비율, 카나리(가중치 0 = 중단)</td></tr>
+<tr><td>지연 시간</td><td>가장 빠른 리전</td></tr>
+<tr><td>장애 조치</td><td>액티브-패시브, DR</td></tr>
+<tr><td>지리 위치</td><td>사용자 위치, 규정·언어. <strong>기본 레코드</strong> 필수(없으면 응답 없음)</td></tr>
+<tr><td>지리 근접</td><td>리소스 위치 + 바이어스(+1~99 확장, -1~-99 축소)</td></tr>
+<tr><td>다중 값 응답</td><td>정상 레코드 최대 8개 무작위, LB 대체 아님</td></tr>
+</table>
+<ul>
+  <li>장애 조치 외 정책 + 상태 확인 = 액티브-액티브</li>
+  <li>상태 확인: 엔드포인트 · 계산된 · CloudWatch 경보. 10/30초 간격, 18% 초과 정상이면 정상. <strong>프라이빗 IP</strong>는 CloudWatch 경보 기반</li>
+  <li><strong>별칭</strong>: apex 가능, AWS 리소스 쿼리 무료, IP 변경 자동 반영, Evaluate Target Health. CNAME은 apex 불가</li>
+</ul>
+
+<h2>DR <small class="muted">(0017)</small></h2>
+<p><strong>RPO</strong> = 허용 데이터 손실(마지막 복구 지점 이후 최대 시간) · <strong>RTO</strong> = 허용 다운타임(중단~복원 최대 지연)</p>
+<table>
+<tr><th>전략 (싼 순)</th><th>DR 리전 상태</th><th>장애 시</th></tr>
+<tr><td>백업 및 복원</td><td>백업만</td><td>IaC로 재배포 + 복원</td></tr>
+<tr><td>파일럿 라이트</td><td>데이터 복제·DB 켜짐, 앱 서버 꺼짐</td><td>켜고 확장</td></tr>
+<tr><td>웜 스탠바이</td><td>축소판 전체 스택 실행 중</td><td>확장만 (즉시 처리 가능)</td></tr>
+<tr><td>다중 사이트 액티브/액티브</td><td>모든 리전이 운영·트래픽 처리</td><td>장애 조치 없음, 트래픽 제외</td></tr>
+</table>
+<ul>
+  <li>요구를 충족하는 <strong>가장 싼</strong> 전략이 정답. 다중 AZ만으로 충분한 경우도 많음</li>
+  <li>복제 ≠ 백업: 손상·삭제도 복제됨 → 특정 시점 백업·버전 관리 병행</li>
+  <li>DR 리전 <strong>서비스 할당량</strong> 미리 상향, 장애 조치는 데이터 플레인 작업(Route 53 상태 확인)으로, 정기 테스트</li>
+  <li>Aurora 글로벌 DB: 보통 1초 미만 복제, 1분 이내 승격</li>
+  <li><strong>AWS Backup</strong>: 백업 계획(태그 할당), 콜드 스토리지 수명 주기, 교차 리전·교차 계정 복사, Organizations 백업 정책. <strong>Vault Lock</strong>: 거버넌스(IAM 권한으로 해제 가능) / 규정 준수(유예 최소 3일 후 누구도 변경 불가)</li>
+</ul>
+
+<p class="muted" style="font-size:.85rem">출처: <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-queue-types.html">SQS 큐 유형</a> · <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html">SQS 메시지 할당량</a> · <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html">SQS DLQ</a> · <a href="https://docs.aws.amazon.com/sns/latest/dg/welcome.html">SNS</a> · <a href="https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-bus.html">EventBridge 이벤트 버스</a> · <a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-using-sqs-queue.html">SQS 기반 Auto Scaling</a> · <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">REST vs HTTP API</a> · <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html">API Gateway 할당량</a> · <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-caching.html">API 캐싱</a> · <a href="https://docs.aws.amazon.com/step-functions/latest/dg/choosing-workflow-type.html">Step Functions 워크플로 유형</a> · <a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_mitigate_interaction_failure_stateless.html">REL05-BP06</a> · <a href="https://docs.aws.amazon.com/whitepapers/latest/aws-fault-isolation-boundaries/availability-zones.html">장애 격리 경계 백서</a> · <a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html">Route 53 라우팅 정책</a> · <a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resource-record-sets-choosing-alias-non-alias.html">별칭 vs CNAME</a> · <a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-determining-health-of-endpoints.html">Route 53 상태 확인</a> · <a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">DR 백서</a> · <a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/whatisbackup.html">AWS Backup</a> · <a href="https://docs.aws.amazon.com/aws-backup/latest/devguide/vault-lock.html">Vault Lock</a></p>
+</main>
+</body>
+</html>
