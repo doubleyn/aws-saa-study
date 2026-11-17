@@ -11,35 +11,51 @@
 
 <p class="kicker">레슨 0021 · 도메인 3 고성능 아키텍처 (24%) · Task 3.3 · 도메인 2 복원력 Task 2.2</p>
 <h1>복제본이라고 다 같은 복제본이 아니다:<br>RDS Multi-AZ, 읽기 전용 복제본, Aurora</h1>
-<p class="lede">시험은 "고가용성"과 "읽기 확장"을 섞어 놓고 어느 쪽을 묻는지 가려내게 합니다. 오늘은 동기식 대기 복제본과 비동기식 읽기 전용 복제본을 확실히 구분하고, RDS Proxy와 Aurora(Serverless, Global Database)가 어떤 문제를 푸는지 정리합니다.</p>
+<p class="lede">AWS 시험에서 가장 매력적이면서도 수험생을 많이 낚는 함정이 바로 "고가용성(HA)"과 "읽기 성능 확장(Scale-out)"을 교묘하게 뒤섞어 출제하는 문제입니다. 이번 레슨에서는 동기식 대기 복제본과 비동기식 읽기 전용 복제본의 근본적인 메커니즘 차이를 완벽히 정리하고, Lambda 환경의 연결 폭주를 해결하는 RDS Proxy, 그리고 컴퓨팅과 스토리지를 분리해 데이터베이스 패러다임을 바꾼 Amazon Aurora의 핵심 아키텍처를 학습합니다.</p>
 <div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/databases.html">데이터베이스 치트시트</a></span></div>
 
-<h2>왜 이것부터인가</h2>
-<p><strong>시험에서</strong>: "AZ 장애에 대비" → Multi-AZ, "보고서 쿼리가 주 DB를 느리게 함" → 읽기 전용 복제본, "Lambda가 연결을 너무 많이 엶" → RDS Proxy. 이 세 줄이 가장 자주 나오는 오답 함정입니다.<br>
-<strong>실무에서</strong>: 운영 DB의 가용성 설계와 비용(대기 인스턴스, 복제본 요금)을 결정하는 기준이 됩니다.</p>
+<h2>왜 RDS와 Aurora를 깊이 있게 배워야 할까요?</h2>
+<p><strong>시험에서</strong>: "가용 영역(AZ) 장애가 발생해도 다운타임 없이 자동으로 서비스를 지속해야 한다"는 요구에는 <strong>Multi-AZ</strong>가 정답이고, "야간 분석 보고서 쿼리 때문에 주 데이터베이스의 온라인 주문 처리가 느려진다"는 문제에는 <strong>읽기 전용 복제본</strong>이 정답입니다. 또한 "수천 개의 Lambda 함수가 동시에 실행되면서 DB 연결 초과 에러가 발생한다"는 상황에는 <strong>RDS Proxy</strong>가 유일한 해법입니다. 이 세 가지 패턴은 시험에 매번 반복 출제되는 단골 주제입니다.<br>
+<strong>실무에서</strong>: 데이터베이스는 서비스의 심장입니다. Multi-AZ 대기 인스턴스와 읽기 전용 복제본의 차이를 모르면 장애 상황에서 데이터 유실이나 서비스 중단이 발생할 수 있고, 잘못된 복제 아키텍처 설계로 수백만 원의 인프라 비용이 낭비될 수 있습니다.</p>
 
-<h2>Multi-AZ DB 인스턴스: 고가용성 전용</h2>
-<p>Multi-AZ DB 인스턴스 배포에서 RDS는 <strong>다른 AZ에 동기식 대기 복제본</strong>을 자동으로 만들고 유지합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[1]</a></sup> 핵심 함정은 이것입니다. AWS 문서는 이 옵션이 읽기 확장 솔루션이 아니며 <strong>대기 복제본으로 읽기 트래픽을 처리할 수 없다</strong>고 분명히 말합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[1]</a></sup> 동기식 복제 때문에 Single-AZ보다 쓰기·커밋 지연이 늘 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[1]</a></sup></p>
-<p>주 인스턴스 호스트 장애, 네트워크 단절, 스토리지 장애, OS 패치 등이 생기면 RDS가 <strong>자동으로 장애 조치</strong>하며, 일반적으로 60–120초가 걸립니다. 장애 조치는 DB 인스턴스의 <strong>DNS 레코드를 대기 인스턴스로 바꾸는</strong> 방식이라 애플리케이션은 같은 엔드포인트로 다시 연결하면 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">[2]</a></sup> "Reboot with failover"로 수동 장애 조치도 가능합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">[2]</a></sup></p>
-
-<h2>Multi-AZ DB 클러스터: 읽을 수 있는 대기 두 개</h2>
-<p><strong>Multi-AZ DB 클러스터</strong>는 라이터 1개와 <strong>읽기 가능한</strong> 리더 2개를 같은 리전의 서로 다른 AZ 세 곳에 둡니다. 복제는 <strong>반동기식</strong>(리더 최소 1개의 확인이 있어야 커밋)이고, 리더는 장애 조치 대상이면서 읽기 트래픽도 처리합니다. Multi-AZ DB 인스턴스보다 쓰기 지연이 낮습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/multi-az-db-clusters-concepts.html">[3]</a></sup> 이름이 비슷하지만 Aurora DB 클러스터와는 다른 것이라고 문서가 따로 경고합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/multi-az-db-clusters-concepts.html">[3]</a></sup></p>
-
-<h2>읽기 전용 복제본: 읽기 확장 + 리전 간 DR</h2>
-<p>읽기 전용 복제본은 DB 인스턴스의 읽기 전용 사본이며, 주 인스턴스의 변경을 <strong>비동기식</strong>으로 복사합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[4]</a></sup> AWS가 꼽는 사용 사례는 읽기 위주 워크로드 확장, 보고서·데이터 웨어하우징 쿼리 분리, 그리고 <strong>복제본을 독립 인스턴스로 승격</strong>하는 재해 복구입니다. 복제본은 <strong>다른 리전</strong>에도 둘 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[4]</a></sup></p>
+<h2>Multi-AZ DB 인스턴스: 가용 영역 장애에 대비하는 고가용성 전용 설계</h2>
+<p>RDS의 <strong>Multi-AZ DB 인스턴스 배포</strong>는 같은 리전 내의 서로 다른 가용 영역(AZ)에 <strong>동기식 대기(Standby) 복제본</strong>을 자동으로 생성하고 유지 관리하는 고가용성(High Availability) 솔루션입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[1]</a></sup></p>
 <ul>
-  <li>RDS는 읽기 전용 복제본의 <strong>자동 확장을 지원하지 않습니다</strong>. 수동으로 만들고 지웁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[4]</a></sup></li>
-  <li>같은 리전 안의 소스와 복제본 사이 복제 데이터 전송은 요금이 없습니다. 복제본 자체는 일반 인스턴스 요금입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[4]</a></sup></li>
-  <li>Multi-AZ 대기와 읽기 전용 복제본을 <strong>함께</strong> 구성할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[4]</a></sup></li>
+  <li><strong>동기식 복제의 원리</strong>: 애플리케이션이 주(Primary) 인스턴스에 쓰기(Write/Commit) 작업을 요청하면, 주 인스턴스와 대기 인스턴스 양쪽의 디스크에 데이터가 모두 기록된 후에야 트랜잭션 성공 응답을 반환합니다. 따라서 데이터 유실이 원천적으로 발생하지 않지만, 단일 AZ 구성에 비해 약간의 쓰기 지연 시간(Write Latency)이 증가할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[1]</a></sup></li>
+  <li><strong>가장 중요한 시험 함정</strong>: <strong>대기(Standby) 인스턴스는 평상시에 절대로 읽기(Read) 트래픽을 처리할 수 없습니다!</strong> 대기 인스턴스는 오직 장애 발생 시 교체 투입되기 위해 백그라운드에서 대기만 하는 인스턴스입니다. 만약 시험 보기에서 "대기 복제본으로 읽기 쿼리를 분산한다"는 내용이 나오면 100% 오답입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html">[1]</a></sup></li>
+  <li><strong>자동 장애 조치(Failover) 메커니즘</strong>: 주 인스턴스의 하드웨어 결함, 네트워크 단절, 스토리지 오류, OS 자동 패치 등이 발생하면 RDS 시스템이 이를 감지하고 대기 인스턴스로 <strong>자동 장애 조치</strong>를 실행합니다(일반적으로 60~120초 소요). 이때 RDS는 데이터베이스의 <strong>DNS CNAME 레코드를 자동으로 대기 인스턴스의 IP로 전환</strong>하므로, 애플리케이션 코드는 엔드포인트 주소를 바꿀 필요 없이 동일한 도메인으로 재연결하기만 하면 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html">[2]</a></sup></li>
 </ul>
 
+<h2>Multi-AZ DB 클러스터: 읽기 가능한 대기 복제본 2개를 갖춘 최신 구성</h2>
+<p>기존 Multi-AZ DB 인스턴스의 "대기 인스턴스를 평상시에 읽기 용도로 놀려둔다"는 아쉬움을 개선하기 위해 도입된 구성이 바로 <strong>Multi-AZ DB 클러스터</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/multi-az-db-clusters-concepts.html">[3]</a></sup></p>
+<ul>
+  <li><strong>구성</strong>: 1개의 라이터(Writer) 인스턴스와 <strong>읽기 트래픽을 처리할 수 있는 리더(Reader) 인스턴스 2개</strong>를 서로 다른 3개 가용 영역에 각각 하나씩 배치합니다.</li>
+  <li><strong>반동기식(Semi-synchronous) 복제</strong>: 라이터에 트랜잭션이 커밋될 때, 최소 1개의 리더 인스턴스로부터 확인 응답을 받으면 즉시 커밋이 완료됩니다. 기존의 완전 동기식 Multi-AZ보다 쓰기 지연 시간이 훨씬 짧고 성능이 우수합니다.</li>
+  <li><strong>역할</strong>: 2개의 리더 인스턴스는 평소에 애플리케이션의 읽기 요청을 분산 처리하며, 주 라이터 인스턴스에 장애가 발생하면 최신 데이터를 가진 리더 인스턴스 중 하나가 즉시 새로운 라이터로 자동 승격됩니다.</li>
+</ul>
+
+<h2>읽기 전용 복제본 (Read Replica): 읽기 부하 분산과 재해 복구(DR)</h2>
+<p><strong>읽기 전용 복제본(Read Replica)</strong>은 주 데이터베이스의 변경 사항을 <strong>비동기식(Asynchronous)</strong>으로 복제하여 읽기 전용으로 서비스하는 복제본입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[4]</a></sup></p>
+<ul>
+  <li><strong>비동기식 복제의 특징</strong>: 주 인스턴스는 복제본에 데이터가 도달하기를 기다리지 않고 클라이언트에게 즉시 커밋을 완료합니다. 따라서 주 인스턴스의 쓰기 성능에는 전혀 영향을 주지 않지만, 미세한 복제 지연(Replication Lag)이 발생할 수 있으므로 최종적 일관성(Eventual Consistency)을 감수할 수 있는 읽기 워크로드에 사용해야 합니다.</li>
+  <li><strong>주요 활용 사례</strong>:
+    <ol>
+      <li><strong>읽기 워크로드 확장</strong>: 조회 수가 압도적으로 많은 웹 사이트나 쇼핑몰에서 읽기 트래픽을 여러 복제본으로 분산합니다.</li>
+      <li><strong>무거운 분석 및 보고서 쿼리 분리</strong>: 정기 감사나 대시보드 리포트 생성과 같이 데이터베이스 리소스를 심하게 소모하는 무거운 집계 쿼리를 복제본으로 격리하여 운영 트랜잭션을 보호합니다.</li>
+      <li><strong>교차 리전 재해 복구(Cross-Region DR)</strong>: 읽기 전용 복제본은 주 인스턴스와 <strong>다른 AWS 리전(Cross-Region)</strong>에도 생성할 수 있습니다. 이를 통해 물리적으로 먼 지역의 사용자에게 초저지연 읽기를 제공함과 동시에, 주 리전 전체가 마비되는 대규모 재난 발생 시 복제본을 독립 데이터베이스로 <strong>승격(Promote)</strong>시켜 비즈니스를 신속하게 복구할 수 있습니다.</li>
+    </ol>
+  </li>
+  <li><strong>시험 핵심 주의사항</strong>: 표준 RDS의 읽기 전용 복제본은 <strong>자동 확장(Auto Scaling)을 지원하지 않습니다.</strong> 관리자가 수동으로 생성하고 삭제해야 합니다(Aurora는 Aurora Auto Scaling 지원). 또한 Multi-AZ 고가용성과 읽기 전용 복제본은 상호 배타적인 것이 아니라 <strong>동시에 함께 구성</strong>하여 사용할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">[4]</a></sup></li>
+</ul>
+
+<h2>한눈에 비교하기: Multi-AZ 인스턴스 vs 클러스터 vs 읽기 전용 복제본</h2>
 <table>
-<tr><th></th><th>Multi-AZ DB 인스턴스</th><th>Multi-AZ DB 클러스터</th><th>읽기 전용 복제본</th></tr>
-<tr><td>목적</td><td><strong>고가용성</strong></td><td>고가용성 + 읽기</td><td><strong>읽기 확장</strong>, DR</td></tr>
-<tr><td>복제</td><td>동기식</td><td>반동기식</td><td>비동기식</td></tr>
-<tr><td>대기/복제본에서 읽기</td><td><strong>불가</strong></td><td>가능 (리더 2개)</td><td>가능</td></tr>
-<tr><td>범위</td><td>같은 리전, 다른 AZ</td><td>같은 리전, AZ 3곳</td><td>같은 리전 또는 <strong>다른 리전</strong></td></tr>
-<tr><td>장애 시</td><td>자동 장애 조치 (DNS 전환)</td><td>자동, 최신 리더로</td><td>수동 <strong>승격</strong></td></tr>
+<tr><th>비교 항목</th><th>Multi-AZ DB 인스턴스</th><th>Multi-AZ DB 클러스터</th><th>읽기 전용 복제본 (Read Replica)</th></tr>
+<tr><td><strong>주요 목적</strong></td><td><strong>고가용성 (HA) 및 자동 장애 조치</strong></td><td>고가용성 + 읽기 확장 동시 달성</td><td><strong>읽기 트래픽 분산 (Scale-out) 및 DR</strong></td></tr>
+<tr><td><strong>데이터 복제 방식</strong></td><td>동기식 (Synchronous)</td><td>반동기식 (Semi-synchronous)</td><td>비동기식 (Asynchronous)</td></tr>
+<tr><td><strong>복제본 읽기 가능 여부</strong></td><td><strong>절대 불가 (스탠바이 대기 전용)</strong></td><td><strong>가능 (리더 2대 모두 읽기 처리)</strong></td><td><strong>가능 (읽기 전용 엔드포인트 제공)</strong></td></tr>
+<tr><td><strong>배치 범위</strong></td><td>동일 리전 내 2개 AZ</td><td>동일 리전 내 3개 AZ</td><td>동일 리전 또는 <strong>서로 다른 리전 (Cross-Region)</strong></td></tr>
+<tr><td><strong>장애 발생 시 동작</strong></td><td>DNS CNAME 자동 전환으로 대기 인스턴스로 장애 조치</td><td>최신 리더 인스턴스가 새로운 라이터로 자동 승격</td><td>수동으로 독립 DB로 승격 (수동 Failover)</td></tr>
 </table>
 
 <figure>
@@ -81,150 +97,194 @@
 </svg>
 </figure>
 
-<h2>RDS Proxy: 연결 폭주를 흡수하는 풀</h2>
-<p>RDS Proxy는 DB 연결을 <strong>풀링·공유</strong>해 애플리케이션 확장성을 높이고, 장애 시 애플리케이션 연결을 유지한 채 대기 인스턴스로 자동 연결해 복원력을 높입니다. 클라이언트에 IAM 인증을 강제할 수 있고, 프록시는 IAM DB 인증 또는 <strong>Secrets Manager</strong>에 저장된 자격 증명으로 DB에 연결합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html">[5]</a></sup> 대부분의 애플리케이션은 코드 변경 없이 쓸 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html">[5]</a></sup></p>
-<p>AWS가 꼽는 좋은 후보: "too many connections" 오류가 나는 DB, 짧은 연결을 자주 여는 <strong>Lambda 함수</strong>, 연결 풀링이 없는 앱. 또한 DNS 캐시를 우회해 Multi-AZ DB 인스턴스의 장애 조치 시간을 <strong>최대 66%</strong> 줄입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-planning.html">[6]</a></sup> 제약: 프록시는 DB와 <strong>같은 VPC</strong>에 있어야 하고 퍼블릭 액세스가 불가하며, 복제 구성에서는 읽기 전용 복제본이 아닌 라이터에만 연결할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html">[5]</a></sup></p>
+<h2>RDS Proxy: 서버리스 연결 폭주를 흡수하는 완전관리형 커넥션 풀러</h2>
+<p>서버리스 아키텍처(예: AWS Lambda)에서는 이벤트가 몰릴 때 수천 개의 함수 인스턴스가 순식간에 기동됩니다. 각 Lambda 함수가 RDS에 직접 데이터베이스 연결(Connection)을 열면, DB의 최대 연결 수 한도를 초과하여 <code>Too many connections</code> 에러가 터지고 데이터베이스가 뻗어버립니다.<br>
+<strong>Amazon RDS Proxy</strong>는 애플리케이션과 RDS 사이에 위치하여 데이터베이스 연결을 <strong>풀링(Pooling) 및 공유(Multiplexing)</strong>해 주는 완전관리형 데이터베이스 프록시입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html">[5]</a></sup></p>
+<ul>
+  <li><strong>연결 풀링</strong>: 수천 개의 Lambda 요청이 들어와도 실제 RDS와의 물리적 연결은 미리 맺어 둔 수십~수백 개의 커넥션 풀을 효율적으로 재사용하므로 DB의 메모리와 CPU 고갈을 방지합니다.</li>
+  <li><strong>장애 조치(Failover) 시간 단축</strong>: Multi-AZ 장애 조치 시 클라이언트의 DNS 캐시 문제로 발생하는 지연을 우회하여, 기존 60~120초 걸리던 장애 조치 시간을 <strong>최대 66% 단축</strong>시킵니다. 클라이언트 연결을 프록시가 유지한 상태에서 뒤단의 데이터베이스 연결만 새 인스턴스로 매끄럽게 교체합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-planning.html">[6]</a></sup></li>
+  <li><strong>강력한 보안 및 자격 증명 관리</strong>: 클라이언트는 IAM 인증을 통해 프록시에 접속하고, 프록시는 <strong>AWS Secrets Manager</strong>에 안전하게 저장된 데이터베이스 암호를 꺼내어 DB에 접속합니다. 개발자가 소스 코드나 환경 변수에 DB 암호를 하드코딩할 필요가 전혀 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html">[5]</a></sup></li>
+  <li><strong>제약 조건</strong>: RDS Proxy는 반드시 데이터베이스와 <strong>동일한 VPC 내부</strong>에 위치해야 하며, 공용 인터넷으로의 퍼블릭 액세스는 지원하지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html">[5]</a></sup></li>
+</ul>
 
 <h2>백업과 스토리지 자동 확장</h2>
 <ul>
-  <li><strong>자동 백업</strong>: 백업 기간에 스토리지 볼륨 스냅샷을 만들고, 보존 기간 안의 <strong>어느 시점으로든 복구</strong>할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html">[7]</a></sup> DB 인스턴스의 보존 기간은 <strong>0–35일</strong>이며 0은 자동 백업 비활성화입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.BackupRetention.html">[8]</a></sup></li>
-  <li><strong>수동 스냅샷</strong>: 인스턴스를 삭제해도 지워지지 않습니다. 첫 스냅샷 이후는 증분입니다. 수동 스냅샷은 공유할 수 있고 자동·수동 모두 복사할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html">[7]</a></sup></li>
-  <li><strong>스토리지 자동 확장</strong>: 예측하기 어려운 워크로드용입니다. 여유 공간이 할당량의 10% 이하로 5분 이상 지속되면 자동으로 늘리고, 상한은 사용자가 정한 <strong>최대 스토리지 임곗값</strong>입니다. 줄이지는 못합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIOPS.Autoscaling.html">[9]</a></sup></li>
+  <li><strong>자동 백업 (Automated Backup)</strong>: 일일 백업 기간(Backup Window)에 전체 스토리지 볼륨의 스냅샷을 생성하고 트랜잭션 로그를 지속적으로 S3에 보관합니다. 보존 기간(Retention Period: <strong>0~35일</strong>, 0일 설정 시 자동 백업 비활성화) 내의 <strong>초 단위 특정 시점(Point-In-Time)으로 언제든 복원</strong>할 수 있습니다. 단, DB 인스턴스를 삭제하면 기본적으로 자동 백업 데이터도 함께 삭제됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.BackupRetention.html">[8]</a></sup></li>
+  <li><strong>수동 스냅샷 (Manual Snapshot)</strong>: 사용자가 원할 때 수동으로 생성하는 스냅샷입니다. <strong>DB 인스턴스를 영구 삭제하더라도 수동 스냅샷은 사용자가 직접 삭제하기 전까지 영구적으로 보존</strong>됩니다. 따라서 35일을 초과하는 장기 보존(예: 규정 준수 백업)이나 다른 리전/계정으로 스냅샷을 공유·복제할 때 반드시 사용합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html">[7]</a></sup></li>
+  <li><strong>스토리지 자동 확장 (Storage Auto Scaling)</strong>: 데이터 증가량을 예측하기 어려운 워크로드에서 디스크 풀 장애를 방지하기 위해 사용합니다. 가용 여유 공간이 할당량의 10% 이하로 떨어져 5분 이상 지속되면 스토리지를 자동으로 증설합니다. 사용자가 설정한 <strong>최대 스토리지 임곗값(Maximum Storage Threshold)</strong>까지만 늘어나 비용 폭탄을 방지합니다. 주의할 점은 스토리지는 늘릴 수만 있고 다시 줄이는(축소) 것은 불가능합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIOPS.Autoscaling.html">[9]</a></sup></li>
 </ul>
 
-<h2>Aurora: 컴퓨팅과 스토리지의 분리</h2>
-<p>Aurora DB 클러스터는 DB 인스턴스들과, <strong>여러 AZ에 걸친</strong> 가상 <strong>클러스터 볼륨</strong>으로 구성됩니다. 라이터(주 인스턴스) 1개와 같은 볼륨을 공유하는 <strong>Aurora 복제본 최대 15개</strong>를 둘 수 있고, 주 인스턴스가 불가용해지면 Aurora 복제본으로 자동 장애 조치합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.html">[10]</a></sup> 클러스터 볼륨에는 AZ 세 곳에 데이터 사본이 있고, 복제량은 인스턴스 수와 무관합니다. 볼륨은 데이터 증가에 따라 <strong>자동으로 커집니다</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html">[11]</a></sup></p>
-<p>스토리지를 공유하므로 복제본 지연은 보통 <strong>100밀리초보다 훨씬 짧고</strong>, 복제본 승격은 주 인스턴스를 새로 만드는 것보다 훨씬 빠릅니다. 복제본이 하나도 없으면 복구 동안 클러스터를 쓸 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Replication.html">[12]</a></sup> 연결은 <strong>클러스터 엔드포인트</strong>(쓰기)와 복제본 간 연결을 분산하는 <strong>리더 엔드포인트</strong>(읽기)를 씁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.Endpoints.html">[13]</a></sup> RDS와 달리 <strong>Aurora Auto Scaling</strong>이 CloudWatch 지표에 맞춰 Aurora 복제본 수를 자동 조정합니다(라이터는 대상 아님).<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Integrating.AutoScaling.html">[14]</a></sup></p>
+<h2>Amazon Aurora: 컴퓨팅과 스토리지를 분리한 클라우드 네이티브 RDBMS</h2>
+<p>기존 상용 관계형 데이터베이스는 인스턴스 하나에 컴퓨팅(CPU/RAM)과 스토리지(디스크)가 물리적으로 묶여 있었습니다. 반면 <strong>Amazon Aurora</strong>(MySQL 및 PostgreSQL과 100% 호환)는 컴퓨팅 엔진과 스토리지 계층을 완전히 분리하여 클라우드에 최적화된 완전히 새로운 아키텍처로 설계되었습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.html">[10]</a></sup></p>
+
+<h3>혁신적인 클러스터 볼륨(Cluster Volume) 스토리지</h3>
+<p>Aurora 클러스터의 데이터는 특정 인스턴스 내부 디스크가 아니라, <strong>3개 가용 영역(AZ)에 걸쳐 6개의 데이터 복제본</strong>(각 AZ마다 2개씩)으로 분산 저장되는 거대한 가상 '클러스터 볼륨'에 기록됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html">[11]</a></sup></p>
+<ul>
+  <li><strong>쿼럼(Quorum) 기반 신뢰성</strong>: 6개의 사본 중 4개의 사본에 쓰기가 완료되면 성공으로 처리하고, 읽을 때는 3개의 사본을 확인합니다. 따라서 <strong>1개 AZ 전체가 붕괴되고 추가로 다른 AZ의 디스크 1개가 고장 나도(총 3개 사본 손실) 데이터 유실 없이 읽기와 쓰기를 완벽하게 지속</strong>할 수 있습니다.</li>
+  <li><strong>자가 치유(Self-Healing) 스토리지</strong>: 백그라운드에서 스토리지 블록과 디스크를 상시 검사하여 손상된 블록이 발견되면 자동으로 다른 사본에서 복구합니다. 스토리지 볼륨은 10GB 단위로 데이터 증가에 맞춰 <strong>최대 128TiB까지 자동으로 확장</strong>됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html">[11]</a></sup></li>
+  <li><strong>최대 15개의 Aurora 읽기 복제본 (Aurora Replicas)</strong>: 라이터와 리더 인스턴스들이 동일한 클러스터 볼륨을 공유하기 때문에 복제 지연 시간이 밀리초 단위(보통 10~20ms 이하)로 극히 짧습니다. 또한 표준 RDS와 달리 <strong>Aurora Auto Scaling</strong>을 통해 CPU 사용률이나 커넥션 수에 따라 리더 복제본을 자동으로 늘리고 줄일 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Integrating.AutoScaling.html">[14]</a></sup></li>
+  <li><strong>엔드포인트 구분</strong>:
+    <ul>
+      <li><strong>클러스터 엔드포인트(Cluster Endpoint)</strong>: 항상 현재의 주 라이터(Primary Writer) 인스턴스를 가리키며, 쓰기 트랜잭션에 사용됩니다.</li>
+      <li><strong>리더 엔드포인트(Reader Endpoint)</strong>: 사용 가능한 여러 Aurora 리더 복제본들 사이에서 읽기 트래픽을 자동으로 로드 밸런싱해 줍니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.Endpoints.html">[13]</a></sup></li>
+    </ul>
+  </li>
+</ul>
 
 <h3>Aurora Serverless (v2)</h3>
-<p>수요에 따라 용량을 자동 조정하고 사용한 만큼만 과금하는 구성으로, 변동이 크고 예측 불가한 워크로드, 개발·테스트, 멀티테넌트, 새 애플리케이션에 적합합니다. 용량은 ACU 단위로 0.5 ACU씩 세밀하게 늘고 줄며, 리더·Multi-AZ·Global Database·RDS Proxy와 함께 쓸 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2.html">[15]</a></sup> 최소 용량을 <strong>0 ACU</strong>로 두면 연결이 없을 때 자동 일시 중지되어 인스턴스 요금이 0이 됩니다(스토리지 요금은 계속). 재개에는 보통 약 15초가 걸립니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html">[16]</a></sup> (현재 AWS 문서는 이 기능을 "Aurora serverless"라고 부릅니다.)</p>
+<p>애플리케이션의 트래픽 변동이 극심하거나 사용 패턴을 전혀 예측할 수 없는 경우, 혹은 밤이나 주말에는 전혀 사용되지 않는 개발/테스트 환경에 최적인 완전 탄력적 배포 모델입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2.html">[15]</a></sup></p>
+<ul>
+  <li><strong>세밀하고 즉각적인 용량 조절</strong>: 데이터베이스 용량을 <strong>ACU(Aurora Capacity Unit, 1 ACU ≈ 2 GiB 메모리 + 해당 CPU)</strong> 단위로 0.5 ACU 단위로 수 밀리초 만에 부드럽게 스케일 업/다운합니다.</li>
+  <li><strong>최소 0 ACU 자동 일시 중지 (Auto-Pause)</strong>: 최소 용량을 <strong>0 ACU</strong>로 설정하면 접속 연결이 없을 때 인스턴스가 자동으로 일시 중지되어 <strong>컴퓨팅 비용이 0원</strong>이 됩니다(스토리지 비용만 청구). 새로운 연결이 들어오면 약 15초 만에 자동으로 깨어나 정상 서비스를 재개합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html">[16]</a></sup></li>
+</ul>
 
 <h3>Aurora Global Database</h3>
-<p>주 리전 1개와 읽기 전용 보조 리전 <strong>최대 10개</strong>로 구성되며, 데이터베이스 엔진이 아닌 <strong>스토리지 계층</strong>으로 복제하고 지연은 보통 <strong>1초 미만</strong>입니다. 리전 전체 장애에서 기존 복제 방식보다 낮은 RTO·RPO로 복구하고, 멀리 떨어진 사용자에게 로컬 지연의 읽기를 제공합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">[17]</a></sup> 계획된 리전 이동은 데이터 손실 없는 <strong>switchover</strong>, 리전 장애 복구는 <strong>failover</strong>를 씁니다. 쓰기 전달(write forwarding)로 보조 클러스터가 쓰기를 주 클러스터에 보내게 할 수도 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">[17]</a></sup></p>
+<p>단일 AWS 리전을 넘어 전 세계를 무대로 서비스를 제공하거나 리전 단위 대재앙에 대비하기 위한 아키텍처입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">[17]</a></sup></p>
+<ul>
+  <li>1개의 주(Primary) 리전과 <strong>최대 10개의 보조(Secondary) 읽기 전용 리전</strong>으로 구성됩니다.</li>
+  <li>데이터베이스 엔진 레벨이 아니라 전용 AWS 글로벌 백본을 통한 <strong>스토리지 계층 복제</strong>를 수행하므로 리전 간 복제 지연 시간이 <strong>보통 1초 미만</strong>에 불과합니다.</li>
+  <li><strong>재해 복구</strong>: 주 리전 전체가 마비되는 재해 발생 시 보조 리전을 주 리전으로 승격하는 데 걸리는 시간(RTO)은 1분 미만이며, 데이터 손실(RPO)은 1초 미만으로 극히 적습니다. 정기 점검 시에는 데이터 손실이 전혀 없는 계획된 리전 전환(Switchover)을 사용합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html">[17]</a></sup></li>
+</ul>
 
 <div class="callout">
-<p class="label">시험 단골: 키워드 → 정답</p>
+<p class="label">시험에 자주 나오는 핵심 패턴</p>
 <ul>
-  <li>"AZ 장애에도 DB 가용", "자동 장애 조치" → <strong>Multi-AZ</strong>. 대기에서 읽기를 시키는 보기는 오답.</li>
-  <li>"읽기 위주", "보고서/분석 쿼리가 운영 DB 부하" → <strong>읽기 전용 복제본</strong> (Aurora라면 리더 엔드포인트, Auto Scaling).</li>
-  <li>"다른 리전에 DR", "리전 장애" → 리전 간 읽기 전용 복제본 승격, Aurora라면 <strong>Global Database</strong> (RPO 초 단위).</li>
-  <li>"Lambda", "too many connections", "장애 조치 시간 단축", "자격 증명을 코드에 두지 않음" → <strong>RDS Proxy</strong>.</li>
-  <li>"예측 불가, 간헐적, 개발/테스트, 쓰지 않을 때 비용 최소" → <strong>Aurora Serverless</strong> (최소 0 ACU).</li>
-  <li>"스토리지가 예측 불가하게 증가" → RDS <strong>스토리지 자동 확장</strong>. "35일보다 오래 보관" → <strong>수동 스냅샷</strong> (또는 AWS Backup).</li>
+  <li><strong>"AZ 장애에도 고가용성 보장", "자동 장애 조치(Failover)"</strong> → <strong>Multi-AZ 배포</strong> 선택. (주의: 대기 인스턴스로 읽기를 처리한다는 보기는 100% 오답!)</li>
+  <li><strong>"읽기 워크로드 확장", "보고서/BI 쿼리가 운영 DB 성능을 저하시킴"</strong> → <strong>읽기 전용 복제본(Read Replica)</strong> 생성. (Aurora인 경우 리더 엔드포인트 및 Aurora Auto Scaling)</li>
+  <li><strong>"교차 리전 재해 복구(DR)", "다른 리전 사용자에게 빠른 읽기"</strong> → <strong>교차 리전 읽기 전용 복제본</strong>, Aurora인 경우 <strong>Aurora Global Database</strong>(스토리지 기반 1초 미만 복제).</li>
+  <li><strong>"Lambda 함수 연결 폭주", "Too many connections 에러", "장애 조치 시간 단축", "DB 비밀번호 소스코드 노출 방지"</strong> → <strong>RDS Proxy</strong> (Secrets Manager 연동).</li>
+  <li><strong>"트래픽 예측 불가, 간헐적 사용, 야간/주말 비용 절감(최소 0원)"</strong> → <strong>Aurora Serverless</strong> (최소 0 ACU 자동 일시 중지).</li>
+  <li><strong>"데이터 증가량이 불규칙하여 디스크 고갈 위험"</strong> → RDS <strong>스토리지 자동 확장</strong>.</li>
+  <li><strong>"35일을 초과하여 규정상 수년간 백업 보관", "DB 인스턴스 삭제 후에도 백업 유지"</strong> → <strong>수동 스냅샷(Manual Snapshot)</strong> 또는 AWS Backup.</li>
 </ul>
 </div>
 
 <h2>연습</h2>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q1. 회사의 RDS for MySQL DB 인스턴스가 단일 AZ에서 운영 중입니다. AZ 장애가 나도 애플리케이션 변경 없이 자동으로 DB를 계속 쓸 수 있어야 합니다. 가장 적합한 방법은?</p>
+  <p class="q-title">Q1. 한 회사가 단일 가용 영역(Single-AZ)에서 Amazon RDS for MySQL 인스턴스를 운영하고 있습니다. 최근 데이터센터 전원 장애 위험을 겪은 후, 데이터센터 수준의 가용 영역(AZ) 장애가 발생하더라도 애플리케이션의 연결 설정이나 코드를 변경하지 않고 자동으로 데이터베이스 서비스를 지속할 수 있는 고가용성 구조를 요구받았습니다. 가장 적합한 조치는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">같은 AZ에 읽기 전용 복제본을 한 개 추가함</button>
-    <button class="opt">다른 리전에 읽기 전용 복제본을 한 개 추가함</button>
-    <button class="opt">DB 인스턴스를 Multi-AZ 배포로 수정함</button>
-    <button class="opt">매시간 수동 스냅샷을 찍어 다른 AZ에 복사함</button>
+    <button class="opt">동일한 가용 영역에 읽기 전용 복제본(Read Replica)을 한 대 추가 생성한다</button>
+    <button class="opt">다른 AWS 리전에 읽기 전용 복제본(Cross-Region Read Replica)을 생성한다</button>
+    <button class="opt">기존 DB 인스턴스를 수정하여 Multi-AZ 배포 옵션을 활성화한다</button>
+    <button class="opt">매시간 수동 스냅샷을 생성하여 다른 가용 영역으로 비동기 복사한다</button>
   </div>
-  <div class="feedback"><p>Multi-AZ는 다른 AZ에 동기식 대기를 두고 장애 시 DNS를 대기로 바꿔 <strong>자동</strong> 장애 조치합니다. 읽기 전용 복제본은 비동기식이고 승격이 수동이라 "자동, 앱 변경 없음"을 만족하지 못합니다. 스냅샷 복원은 시간이 오래 걸립니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>Multi-AZ 배포 활성화</strong>입니다! Multi-AZ 배포는 다른 AZ에 동기식 대기 복제본을 유지하며, 주 인스턴스나 AZ 장애 시 RDS가 DNS CNAME 레코드를 대기 인스턴스로 자동 전환하므로 애플리케이션 코드나 연결 문자열을 변경할 필요가 전혀 없습니다. 반면 읽기 전용 복제본은 비동기식 복제이며 장애 시 수동으로 승격해야 하므로 자동 장애 조치를 만족하지 못합니다. 스냅샷 복원은 시간이 오래 걸려 다운타임이 큽니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q2. RDS for PostgreSQL 운영 DB에서 야간 보고서 쿼리가 돌 때마다 주문 처리 응답이 느려집니다. 보고서는 몇 분 지연된 데이터여도 괜찮습니다. 가장 비용 효율적인 해결책은?</p>
+  <p class="q-title">Q2. 한 전자상거래 기업의 RDS for PostgreSQL 운영 데이터베이스에서 매일 밤 복잡한 정산 및 통계 보고서 쿼리가 실행될 때마다, 일반 고객들의 상품 주문 처리 트랜잭션 응답 속도가 심각하게 느려지는 현상이 발생합니다. 경영진에 제출되는 정산 보고서는 실시간 데이터와 수초에서 수 분 정도의 복제 시차가 있어도 무방합니다. 운영 DB의 성능 저하를 방지하는 가장 비용 효율적인 아키텍처는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">읽기 전용 복제본을 만들어 보고서만 따로 보냄</button>
-    <button class="opt">Multi-AZ를 켜고 보고서를 대기에서 실행</button>
-    <button class="opt">인스턴스 클래스를 가장 큰 사양으로 상시 올림</button>
-    <button class="opt">RDS Proxy를 두어 보고서 결과를 캐싱함</button>
+    <button class="opt">읽기 전용 복제본(Read Replica)을 생성하고 보고서 쿼리 트래픽을 복제본으로 보낸다</button>
+    <button class="opt">Multi-AZ 배포를 활성화하고 무거운 보고서 쿼리를 대기(Standby) 인스턴스에서 실행한다</button>
+    <button class="opt">운영 데이터베이스 인스턴스 클래스를 가장 큰 최상위 인스턴스로 상시 증설한다</button>
+    <button class="opt">RDS Proxy를 도입하여 보고서 쿼리 결과를 프록시 레이어에 캐싱한다</button>
   </div>
-  <div class="feedback"><p>보고서 쿼리 분리는 AWS가 명시한 읽기 전용 복제본의 대표 사용 사례이고, 약간의 지연(비동기)은 허용됩니다. <strong>Multi-AZ 대기는 읽기 트래픽을 처리할 수 없으므로</strong> 두 번째 보기가 가장 유혹적인 오답입니다. RDS Proxy는 연결 풀링이지 쿼리 캐시가 아닙니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>읽기 전용 복제본 생성 후 보고서 쿼리 분리</strong>입니다! 복잡한 집계 및 보고서 쿼리를 비동기식 읽기 전용 복제본으로 분리하는 것은 AWS가 권장하는 전형적인 읽기 부하 분산 패턴입니다. <strong>가장 유혹적인 오답인 Multi-AZ 대기 인스턴스는 평상시 읽기 트래픽을 절대 처리할 수 없습니다.</strong> 인스턴스 상시 증설은 비용 낭비이며, RDS Proxy는 커넥션 풀러이지 쿼리 결과를 저장하는 캐시가 아닙니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q3. 트래픽 급증 시 수천 개의 Lambda 함수가 동시에 RDS for MySQL에 연결해 "too many connections" 오류가 납니다. 코드 변경을 최소화하면서 해결하려면?</p>
+  <p class="q-title">Q3. 대규모 프로모션 이벤트가 시작되면서 수천 개의 AWS Lambda 함수가 동시에 실행되었고, 이들이 동시에 RDS for MySQL 데이터베이스로 직접 연결을 시도하면서 데이터베이스에 'Too many connections' 오류가 발생하고 대량의 요청이 실패했습니다. 애플리케이션의 코드를 거의 수정하지 않고 이 연결 폭주 문제를 해결할 수 있는 가장 적합한 서비스는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">Lambda 예약 동시성을 1로 두어 직렬로 실행</button>
-    <button class="opt">읽기 전용 복제본을 다섯 개 추가해서 연결을 분산</button>
-    <button class="opt">Multi-AZ DB 클러스터로 전환해 연결 분산</button>
-    <button class="opt">RDS Proxy를 두고 Lambda가 이를 경유</button>
+    <button class="opt">Lambda 함수의 예약된 동시성(Reserved Concurrency)을 1로 제한하여 순차 처리한다</button>
+    <button class="opt">RDS 읽기 전용 복제본을 5대 추가하여 Lambda 연결을 분산시킨다</button>
+    <button class="opt">RDS 인스턴스를 Multi-AZ DB 클러스터로 전환하여 연결을 고르게 분배한다</button>
+    <button class="opt">데이터베이스 앞에 Amazon RDS Proxy를 배포하고 Lambda가 프록시를 통해 접속하도록 한다</button>
   </div>
-  <div class="feedback"><p>RDS Proxy는 연결 풀을 유지하며 재사용하므로, 짧은 연결을 자주 여는 Lambda의 대표 해결책입니다. 복제본 추가는 쓰기 연결을 줄이지 못하고 앱이 엔드포인트를 나눠 써야 합니다. 동시성 1은 확장성을 없앱니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>Amazon RDS Proxy 도입</strong>입니다! RDS Proxy는 유휴 데이터베이스 연결을 풀링하고 공유하여 수천 개의 일시적인 Lambda 동시 실행 요청을 소수의 안정적인 DB 커넥션으로 멀티플렉싱합니다. 애플리케이션 코드 변경 없이 엔드포인트 주소만 프록시로 변경하면 됩니다. 동시성을 1로 제한하면 시스템 전체가 심각한 병목 상태에 빠지며, 복제본을 추가하는 것은 쓰기 트랜잭션의 연결 한도 문제를 해결하지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q4. 글로벌 서비스가 Aurora PostgreSQL을 씁니다. 유럽·아시아 사용자에게 낮은 지연의 읽기를 제공하고, 주 리전 전체 장애 시 초 단위 RPO로 다른 리전에서 복구해야 합니다. 가장 적합한 것은?</p>
+  <p class="q-title">Q4. 전 세계 사용자를 대상으로 운영 중인 글로벌 미디어 서비스가 Amazon Aurora PostgreSQL을 주 데이터베이스로 사용하고 있습니다. 유럽 및 아시아의 현지 사용자들에게 1초 미만의 빠른 읽기 응답을 제공해야 하며, 주 리전 전체가 마비되는 대규모 재해 상황에서도 1분 미만의 RTO(복구 시간 목표)와 수 초 미만의 RPO(복구 시점 목표)로 타 리전에서 즉시 서비스를 복구할 수 있어야 합니다. 가장 적합한 솔루션은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">각 리전에 독립 클러스터를 두고 매일 스냅샷 복사함</button>
-    <button class="opt">Global Database로 보조 리전들을 추가함</button>
-    <button class="opt">같은 리전에서 Aurora 복제본을 15개까지 늘림</button>
-    <button class="opt">Aurora 앞에 RDS Proxy를 리전별 배치함</button>
+    <button class="opt">각 대륙 리전마다 독립된 Aurora 클러스터를 구축하고 매일 밤 S3 스냅샷을 교차 복제한다</button>
+    <button class="opt">Aurora Global Database를 구성하여 대상 리전들에 읽기 전용 보조 클러스터를 추가한다</button>
+    <button class="opt">주 리전 내부에서 Aurora 읽기 복제본의 수를 최대 한도인 15대까지 늘린다</button>
+    <button class="opt">각 대륙 리전마다 Amazon RDS Proxy를 배포하여 주 리전의 Aurora로 직접 연결한다</button>
   </div>
-  <div class="feedback"><p>Global Database는 스토리지 계층에서 보통 1초 미만 지연으로 보조 리전에 복제하고, 리전 장애 시 낮은 RTO·RPO로 failover합니다. 하루 단위 스냅샷 복사는 RPO가 최대 하루입니다. 같은 리전 복제본은 리전 장애를 막지 못합니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>Aurora Global Database</strong>입니다! Aurora Global Database는 전용 스토리지 복제 계층을 사용하여 보통 1초 미만의 지연 시간으로 최대 10개의 보조 리전에 데이터를 복제합니다. 이를 통해 각 대륙 사용자에게 초저지연 로컬 읽기를 제공하고, 주 리전 장애 시 보조 리전을 주 리전으로 승격하여 RTO 1분 미만, RPO 1초 미만으로 비즈니스를 완벽히 복구할 수 있습니다. 일일 스냅샷 복제는 RPO가 최대 24시간에 달해 요건을 만족할 수 없으며, 단일 리전 복제본은 타 리전 재해 복구를 제공하지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0,3">
-  <p class="q-title">Q5. RDS Multi-AZ <strong>DB 인스턴스</strong> 배포의 대기 복제본에 대한 설명으로 옳은 것은? (두 개를 고르세요)</p>
+  <p class="q-title">Q5. Amazon RDS Multi-AZ <strong>DB 인스턴스</strong> 배포에서 유지되는 대기(Standby) 복제본에 대한 설명으로 옳은 것 두 가지를 고르세요.</p>
   <div class="options">
-    <button class="opt">주 인스턴스와 다른 AZ에서 동기식으로 복제된다</button>
-    <button class="opt">평상시 읽기 트래픽을 받아 주 인스턴스를 돕는다</button>
-    <button class="opt">다른 리전에 두어 리전 장애에도 대비할 수 있다</button>
-    <button class="opt">장애 조치 시에 DNS 레코드가 대기로 전환된다</button>
+    <button class="opt">주(Primary) 인스턴스와 서로 다른 가용 영역(AZ)에서 동기식(Synchronous)으로 복제된다</button>
+    <button class="opt">평상시 애플리케이션의 읽기(SELECT) 트래픽을 분산 처리하여 주 인스턴스의 부하를 낮춘다</button>
+    <button class="opt">지리적으로 격리된 다른 AWS 리전에 배치되어 리전 단위 대재앙에 대비한다</button>
+    <button class="opt">주 인스턴스에 장애가 발생하면 DNS CNAME 레코드가 대기 인스턴스로 자동 전환된다</button>
   </div>
-  <div class="feedback"><p>대기는 다른 AZ의 <strong>동기식</strong> 복제본이고, 장애 조치는 DNS 레코드 전환으로 이루어집니다. 대기는 읽기를 처리할 수 없고(읽기가 필요하면 Multi-AZ DB 클러스터나 읽기 전용 복제본), 같은 리전 안에서만 동작합니다. 다른 리전은 읽기 전용 복제본의 영역입니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>첫 번째(동기식 복제)</strong>와 <strong>네 번째(DNS 레코드 전환 장애 조치)</strong>입니다!<br>
+Multi-AZ DB 인스턴스의 대기 인스턴스는 동일 리전 내 다른 AZ에 위치하며 완전 동기식으로 데이터를 복제합니다. 장애가 발생하면 RDS가 DNS 레코드를 대기 인스턴스로 자동 전환하여 장애 조치를 완료합니다.<br>
+<strong>오답 분석</strong>: 대기 인스턴스는 <strong>평상시에 절대로 읽기 트래픽을 처리할 수 없습니다</strong>(읽기 분산은 읽기 전용 복제본의 역할). 또한 Multi-AZ 인스턴스는 <strong>같은 리전 내</strong>에서만 동작하며, 다른 리전에 두는 것은 교차 리전 읽기 전용 복제본의 영역입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q6. 개발팀의 테스트 DB는 근무 시간에만 간헐적으로 쓰이고 밤·주말에는 전혀 쓰이지 않습니다. Aurora MySQL을 유지하면서 컴퓨팅 비용을 가장 줄이는 방법은?</p>
+  <p class="q-title">Q6. 한 소프트웨어 개발팀이 내부 테스트용 Aurora MySQL 데이터베이스를 운영하고 있습니다. 이 데이터베이스는 평일 업무 시간에만 개발자들에 의해 간헐적으로 사용되며, 야간과 주말에는 일체의 데이터베이스 접근이 전혀 발생하지 않습니다. Aurora의 고유 기능과 MySQL 호환성을 유지하면서 데이터베이스 컴퓨팅 인프라 비용을 최소화할 수 있는 가장 효과적인 방안은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">가장 작은 프로비저닝 인스턴스 1대를 하루 종일 계속 운영함</button>
-    <button class="opt">복제본을 추가하고 Aurora Auto Scaling을 적용</button>
-    <button class="opt">Serverless로 전환하고 최소 용량을 0 ACU로 설정</button>
-    <button class="opt">Global Database를 켜서 야간엔 보조 리전을 이용</button>
+    <button class="opt">가장 작은 프로비저닝 인스턴스 타입 1대를 선택하여 24시간 365일 상시 가동한다</button>
+    <button class="opt">읽기 복제본을 추가하고 Aurora Auto Scaling을 구성하여 야간에 복제본을 줄인다</button>
+    <button class="opt">클러스터를 Aurora Serverless v2로 전환하고 최소 용량을 0 ACU로 설정한다</button>
+    <button class="opt">Aurora Global Database를 구성하여 야간 시간대에는 저렴한 리전으로 부하를 이전한다</button>
   </div>
-  <div class="feedback"><p>최소 0 ACU면 연결이 없을 때 자동 일시 중지되어 인스턴스 요금이 0이 됩니다(재개 약 15초, 개발·테스트에 적합). 작은 인스턴스도 쉬는 시간에 요금이 나갑니다. Auto Scaling은 리더만 조정하며 라이터는 그대로입니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>Aurora Serverless v2 전환 및 최소 0 ACU 설정</strong>입니다! Aurora Serverless v2에서 최소 용량을 0 ACU로 설정하면, 지정된 시간 동안 연결이 없을 때 인스턴스가 자동으로 일시 중지(Auto-Pause)되어 <strong>컴퓨팅 비용이 0원</strong>이 됩니다. 새로운 연결 요청이 들어오면 약 15초 내외로 자동 재개됩니다. 가장 작은 고정 인스턴스라도 쉬는 시간 동안 시간당 요금이 계속 부과되며, Auto Scaling은 리더 복제본만 조절할 뿐 주 라이터 인스턴스의 기본 비용을 없애지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q7. 신규 모바일 게임의 RDS 데이터가 얼마나 빨리 늘지 예측할 수 없습니다. 스토리지 부족으로 인한 장애를 운영 부담 없이 피하려면?</p>
+  <p class="q-title">Q7. 새로 출시된 글로벌 모바일 게임의 인기로 인해 RDS 데이터베이스의 사용자 데이터 증가 속도를 사전에 가늠하기 어렵습니다. 관리자가 일일이 모니터링하지 않더라도 스토리지 용량 고갈로 인한 데이터베이스 다운타임을 완벽히 방지하고, 예상치 못한 과도한 비용 청구를 통제할 수 있는 가장 적합한 기능은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">경보가 울릴 때마다 운영자가 직접 수동으로 증설함</button>
-    <button class="opt">스토리지 자동 확장을 켜고 그 최대 임곗값을 지정</button>
-    <button class="opt">처음부터 최대 크기의 스토리지를 할당해 두고 사용</button>
-    <button class="opt">읽기 전용 복제본을 추가해 데이터를 나눠서 저장함</button>
+    <button class="opt">CloudWatch 여유 공간 알람을 설정하고 경보 발생 시 관리자가 수동으로 스토리지 크기를 증설한다</button>
+    <button class="opt">RDS 스토리지 자동 확장을 활성화하고 최대 스토리지 임곗값(Maximum Threshold)을 지정한다</button>
+    <button class="opt">데이터베이스 생성 시 처음부터 최대 허용 용량인 64TiB 스토리지를 미리 할당해 둔다</button>
+    <button class="opt">읽기 전용 복제본을 생성하여 테이블 데이터를 복제본으로 나누어 파티셔닝 저장한다</button>
   </div>
-  <div class="feedback"><p>스토리지 자동 확장은 여유 공간이 10% 이하로 5분 이상 지속되면 최대 임곗값까지 자동으로 늘립니다. AWS 문서가 바로 "빠르게 성장하는 모바일 게임"을 예로 듭니다. 처음부터 최대 할당은 비용 낭비이고, 복제본은 전체 사본이라 데이터를 나누지 않습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>RDS 스토리지 자동 확장 활성화 및 최대 임곗값 설정</strong>입니다! 스토리지 자동 확장은 남은 스토리지 여유 공간이 10% 미만으로 떨어져 5분 이상 지속되면 자동으로 용량을 증설합니다. 또한 사용자가 정의한 '최대 스토리지 임곗값'까지만 증설되므로 예산을 초과하는 무제한 확장을 방지할 수 있습니다. 수동 증설은 운영 오버헤드가 크고 야간 장애에 취약하며, 처음부터 최대 크기를 잡는 것은 극심한 비용 낭비입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q8. (0017 DR 복습) 규정상 RDS 데이터베이스의 백업을 1년간 보관해야 하고, DB 인스턴스를 삭제해도 백업이 남아야 합니다. 자동 백업만으로 부족한 이유와 대안으로 옳은 것은?</p>
+  <p class="q-title">Q8. (0017 DR 복습) 전자금융 규제 준수를 위해 회사의 프로덕션 RDS 데이터베이스 백업을 반드시 최소 1년(365일) 이상 안전하게 보관해야 하며, 해당 DB 인스턴스가 실수로 종료 및 삭제되더라도 백업 데이터는 온전히 보존되어야 합니다. RDS의 기본 자동 백업(Automated Backup)만으로 이 요구 사항을 충족할 수 없는 이유와 올바른 대응 방안은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">자동 백업은 7일이 상한이라 매주 복사해야 한다</button>
-    <button class="opt">자동 백업은 리전 밖에 못 둬 복제본이 필요하다</button>
-    <button class="opt">자동 백업은 증분이 아니라 비용 때문에 못 쓴다</button>
-    <button class="opt">자동 백업은 최대 35일이라 수동 스냅샷을 쓴다</button>
+    <button class="opt">자동 백업의 보존 기간은 최대 7일이 한계이므로, 매주 외부 S3 버킷으로 수동 다운로드해야 한다</button>
+    <button class="opt">자동 백업은 VPC 외부에 저장할 수 없으므로, 타 리전으로 읽기 전용 복제본을 유지해야 한다</button>
+    <button class="opt">자동 백업은 차등 증분 방식이 아니어서 1년 치를 보관할 경우 스토리지 비용이 감당 불가능하다</button>
+    <button class="opt">자동 백업의 최대 보존 기간은 35일이며 DB 인스턴스 삭제 시 함께 지워지므로, 수동 스냅샷이나 AWS Backup을 사용해야 한다</button>
   </div>
-  <div class="feedback"><p>DB 인스턴스의 자동 백업 보존 기간은 0–35일입니다. 수동 스냅샷은 인스턴스를 삭제해도 지워지지 않으므로 장기 보관에 씁니다. 7일은 콘솔 기본값일 뿐 상한이 아닙니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>자동 백업의 최대 보존 기간이 35일이고 인스턴스 삭제 시 함께 삭제되기 때문</strong>입니다! RDS 자동 백업의 보존 기간은 0일에서 최대 35일까지로 제한되어 있어 1년 보관 규정을 충족할 수 없습니다. 또한 DB 인스턴스를 삭제하면 자동 백업도 함께 제거됩니다. 반면 <strong>수동 스냅샷(Manual Snapshot)</strong>이나 <strong>AWS Backup</strong>을 사용하면 DB 인스턴스가 삭제되어도 스냅샷이 영구적으로 보존되며, 수년간 안전하게 보관할 수 있습니다.</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) Multi-AZ DB 인스턴스, Multi-AZ DB 클러스터, 읽기 전용 복제본을 복제 방식·읽기 가능 여부·범위로 비교하세요. (2) Aurora 클러스터 볼륨, 복제본, Serverless, Global Database의 핵심을 한 줄씩. (3) RDS Proxy를 떠올려야 하는 키워드 세 개.</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <p>교재를 보지 말고 머릿속 기억만으로 정리해 보세요.<br>
+  (1) Multi-AZ DB 인스턴스, Multi-AZ DB 클러스터, 읽기 전용 복제본(Read Replica)의 세 가지 방식을 복제 방식(동기/반동기/비동기), 복제본의 읽기 쿼리 가능 여부, 배포 가용 범위 측면에서 비교해 보세요.<br>
+  (2) Amazon Aurora의 클러스터 볼륨 스토리지 아키텍처(사본 수, AZ 수, 복제 lag), Aurora Auto Scaling, Aurora Serverless v2(0 ACU), Global Database의 핵심 특징을 각각 설명해 보세요.<br>
+  (3) 시험 문제에서 Amazon RDS Proxy를 반드시 정답으로 떠올려야 하는 핵심 키워드 3가지를 적어 보세요.</p>
+  <textarea placeholder="여기에 자신만의 언어로 직접 정리해 보세요..."></textarea>
   <button data-reveal>답 확인</button>
   <div class="answer">
-    <p>(1) Multi-AZ 인스턴스: 동기식, 대기 읽기 <strong>불가</strong>, 같은 리전 다른 AZ, 자동 장애 조치(DNS 전환, 보통 60–120초). Multi-AZ 클러스터: 반동기식, 리더 2개 읽기 가능, AZ 3곳. 읽기 전용 복제본: 비동기식, 읽기 가능, 다른 리전 가능, 수동 승격, RDS는 복제본 자동 확장 없음.</p>
-    <p>(2) 클러스터 볼륨은 AZ 3곳에 사본, 자동 증가. 복제본 최대 15개가 같은 볼륨 공유(지연 보통 100ms 미만), 장애 조치 대상, 리더 엔드포인트로 분산, Aurora Auto Scaling. Serverless는 0.5 ACU 단위 자동 조정, 최소 0 ACU면 자동 일시 중지. Global Database는 보조 리전 최대 10개, 스토리지 기반 복제 1초 미만, switchover/failover.</p>
-    <p>(3) Lambda, too many connections, 장애 조치 시간 단축(최대 66%), Secrets Manager/IAM 인증.</p>
+    <p><strong>(1) 세 가지 복제 방식 완벽 비교:</strong><br>
+    - <strong>Multi-AZ DB 인스턴스</strong>: 동기식 복제, 대기 인스턴스는 읽기 <strong>절대 불가</strong>, 동일 리전 2개 AZ, DNS 전환을 통한 자동 장애 조치(보통 60~120초).<br>
+    - <strong>Multi-AZ DB 클러스터</strong>: 반동기식 복제, 2개의 리더 복제본 모두 읽기 처리 <strong>가능</strong>, 동일 리전 3개 AZ, 최신 리더로 자동 장애 조치.<br>
+    - <strong>읽기 전용 복제본 (Read Replica)</strong>: 비동기식 복제, 읽기 트래픽 처리 <strong>가능</strong>, 동일 리전 및 <strong>다른 리전(Cross-Region)</strong> 가능, 장애 시 수동으로 독립 DB로 승격 (표준 RDS는 복제본 자동 확장 미지원).</p>
+    <p><strong>(2) Aurora 아키텍처 핵심 요약:</strong><br>
+    - <strong>클러스터 볼륨</strong>: 3개 AZ에 걸쳐 6개의 사본 분산 저장, 4/6 쓰기 쿼럼, 자가 치유 스토리지, 복제본 지연 시간 수십 밀리초 이하(동일 스토리지 공유), 최대 15개 복제본 지원.<br>
+    - <strong>Aurora Auto Scaling</strong>: CPU 또는 커넥션 지표에 따라 Aurora 읽기 복제본을 자동 증설/축소.<br>
+    - <strong>Aurora Serverless v2</strong>: 0.5 ACU 단위 즉각 확장, 최소 0 ACU 설정 시 미사용 시 자동 일시 중지(컴퓨팅 요금 0원, 15초 내 자동 재개).<br>
+    - <strong>Aurora Global Database</strong>: 전용 스토리지 복제 계층을 통해 1초 미만 지연으로 최대 10개 보조 리전에 복제, 리전 재해 시 1분 미만 RTO 복구.</p>
+    <p><strong>(3) RDS Proxy 핵심 키워드:</strong><br>
+    - 수천 개의 <strong>AWS Lambda 동시 실행</strong> 환경<br>
+    - <strong>Too many connections (연결 고갈)</strong> 오류 해결<br>
+    - Multi-AZ <strong>장애 조치(Failover) 시간 최대 66% 단축</strong> 및 <strong>AWS Secrets Manager 자격 증명 연동</strong> (하드코딩 제거).</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">"Working with DB instance read replicas"</a>. 사용 사례, Multi-AZ와의 결합, 리전 간 복제본이 한 페이지에 있습니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (선택, 비용 주의)</strong>: 프리 티어 대상 클래스로 RDS for MySQL Single-AZ 인스턴스를 만들고 "Modify"에서 Multi-AZ 옵션과 스토리지 자동 확장 항목을 확인만 해 보세요. Multi-AZ나 읽기 전용 복제본을 실제로 켜면 인스턴스 요금이 추가되므로, 실습 후 바로 삭제하세요(삭제 시 최종 스냅샷도 보관 요금이 생길 수 있습니다).</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>1차 공식 문서 정독 (10분 투자)</strong>: AWS 공식 설명서의 <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html">"Working with DB instance read replicas"</a> 문서를 정독하세요. 읽기 복제본의 사용 사례, Multi-AZ 배포와의 결합 아키텍처, 교차 리전 복제본을 활용한 재해 복구(DR) 절차가 그림과 함께 명확하게 설명되어 있습니다.</p>
+<p><strong>실습 가이드 (비용 절감 주의)</strong>: AWS 콘솔에서 프리 티어(db.t3.micro/db.t4g.micro)를 선택하여 RDS for MySQL 인스턴스를 단일 AZ로 생성해 보고, 인스턴스 수정(Modify) 메뉴에 들어가 Multi-AZ 설정 옵션과 스토리지 자동 확장(Storage Auto Scaling) 임곗값 지정 화면을 눈으로 확인해 보세요. Multi-AZ나 복제본을 실제로 활성화하면 인스턴스 요금이 2배로 청구되므로 실습 확인 후 인스턴스를 즉시 삭제하세요.</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q2(대기에서 읽기)와 Q5는 Multi-AZ와 읽기 전용 복제본을 섞어 기억하면 틀리기 쉬운 지점입니다. "Multi-AZ DB 클러스터와 Aurora는 뭐가 다른가?" 같은 질문도 환영합니다.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>퀴즈 점수와 헷갈렸던 문제를 확인해 보세요. 특히 Q2(Multi-AZ 대기는 읽기가 불가능하다는 점)와 Q3(Lambda의 연결 고갈은 RDS Proxy로 해결한다는 점)은 실무와 시험 모두에서 매번 등장하는 핵심 포인트입니다. 궁금한 점이 있다면 언제든 질문해 주세요. 다음 레슨(0022)에서는 초저지연 NoSQL의 절대강자 DynamoDB와 인메모리 캐시 ElastiCache를 파헤칩니다!</p>
 </div>
 
 <h3>출처</h3>

@@ -11,46 +11,75 @@
 
 <p class="kicker">레슨 0012 · 도메인 3 고성능 아키텍처 (24%) · Task 3.2 · 2.1/4.2 연계</p>
 <h1>늘리고 줄이고 바꾸기:<br>EC2 Auto Scaling의 조정 정책과 수명 주기</h1>
-<p class="lede">Auto Scaling 그룹은 "몇 대를 유지할지"와 "언제 바꿀지"를 대신 정해 줍니다. 시험은 다섯 가지 조정 방식 중 시나리오에 맞는 것을 고르게 하고, 상태 확인과 수명 주기 후크로 함정을 겁니다.</p>
-<div class="meta"><span>⏱ 약 18분</span><span>🎯 오늘의 승리: 트래픽 패턴을 보고 조정 정책 고르기, 시나리오 8문항</span><span>📌 <a href="../reference/compute.html">컴퓨팅 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+<p class="lede">Auto Scaling 그룹(ASG)은 서비스 수요에 맞추어 "인스턴스를 몇 대 유지할지"와 "언제 인스턴스를 늘리고 줄일지"를 지능적으로 자동 관리해 주는 서비스입니다. AWS 시험에서는 주어진 트래픽 패턴과 요구사항에 맞추어 다섯 가지 조정 정책 중 최적의 방식을 고르는 시나리오와, 상태 확인(Health Check) 및 수명 주기 후크(Lifecycle Hook)의 세부 동작 원리를 파고드는 함정 문제가 단골로 출제됩니다.</p>
+<div class="meta"><span>⏱ 약 18분</span><span>🎯 오늘의 승리: 트래픽 패턴을 분석하여 최적의 조정 정책 선택하기, 시나리오 8문항 완전 정복</span><span>📌 <a href="../reference/compute.html">컴퓨팅 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
 
-<h2>왜 이것부터인가</h2>
-<p><strong>시험에서</strong>: "트래픽이 예측 불가", "매주 같은 시간", "부팅이 오래 걸림", "종료 전에 로그를 보관" 같은 단서가 각각 다른 기능을 가리킵니다.<br>
-<strong>실무에서</strong>: 0011의 로드 밸런서 뒤에 Auto Scaling 그룹을 다중 AZ로 두는 것이 고가용성 웹 계층의 기본형입니다.</p>
+<h2>왜 EC2 Auto Scaling을 배워야 할까요?</h2>
+<p><strong>시험 관점</strong>: "예측할 수 없는 불규칙한 트래픽", "매주 특정 요일과 시간대에 집중되는 부하", "인스턴스 부팅과 애플리케이션 초기화에 오랜 시간이 소요됨", "인스턴스가 완전히 종료되기 전에 로그 파일을 안전하게 백업"과 같은 핵심 단서들이 제시됩니다. 이 단서들은 각각 대상 추적, 예약 조정, 예측 조정, 수명 주기 후크라는 서로 다른 기능을 정확하게 가리킵니다.<br>
+<strong>실무 관점</strong>: 앞선 레슨 0011에서 배운 탄력적 로드 밸런서(ALB/NLB) 뒤편에 여러 가용 영역(Multi-AZ)에 걸친 Auto Scaling 그룹을 배치하는 구조는, 고가용성과 내결함성을 갖춘 클라우드 웹 계층을 설계할 때 가장 기본적이면서도 강력한 표준 아키텍처입니다.</p>
 
-<h2>그룹의 뼈대: 최소·원하는·최대, 시작 템플릿, 다중 AZ</h2>
-<p>Auto Scaling 그룹은 EC2 인스턴스를 논리적 단위로 묶습니다. <strong>최소</strong> 아래로는 줄지 않고, <strong>최대</strong> 위로는 늘지 않으며, <strong>원하는 용량</strong>(desired capacity)만큼 유지합니다. 조정 정책은 이 범위 안에서 원하는 용량을 바꿉니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html">[1]</a></sup> Auto Scaling 자체는 추가 요금이 없고, 쓰는 인스턴스 등 리소스 비용만 냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html">[1]</a></sup></p>
+<h2>Auto Scaling 그룹의 뼈대: 최소·원하는·최대 용량, 시작 템플릿, 다중 AZ</h2>
+<p>Auto Scaling 그룹(ASG)은 동일한 역할을 수행하는 EC2 인스턴스들을 논리적인 하나의 단위로 묶어서 관리합니다. 관리자는 세 가지 기본 용량 속성을 설정하여 그룹의 크기를 제어합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html">[1]</a></sup></p>
 <ul>
-<li><strong>시작 템플릿</strong>(launch template): AMI ID, 인스턴스 유형, 키 페어, 보안 그룹 등 시작 설정을 담고 <strong>버전</strong>을 관리합니다. AWS는 시작 구성(launch configuration) 대신 시작 템플릿을 권장하며, Spot과 온디맨드를 섞거나 여러 인스턴스 유형을 지정하는 기능은 시작 템플릿에서만 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/launch-templates.html">[3]</a></sup></li>
-<li><strong>다중 AZ</strong>: 여러 AZ의 서브넷을 지정하면 AZ마다 인스턴스 수를 고르게 맞추려 하고, 한 AZ가 불가용해지면 다른 AZ에 인스턴스를 띄워 보상합니다. AZ가 회복되면 자동으로 재조정(rebalancing)하며, 이때 새 인스턴스를 먼저 띄운 뒤 기존 것을 종료합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/auto-scaling-benefits.html">[2]</a></sup></li>
-<li><strong>로드 밸런서 연동</strong>: 대상 그룹을 연결하면 Auto Scaling이 시작한 인스턴스를 자동 등록하고 종료하는 인스턴스를 자동 등록 취소합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html">[1]</a></sup></li>
+<li><strong>최소 용량(Minimum Capacity)</strong>: 트래픽이 아무리 줄어들더라도 인스턴스 수가 이 값 아래로는 절대 줄어들지 않습니다. 최소한의 서비스 가용성을 보장하는 안전장치입니다.</li>
+<li><strong>최대 용량(Maximum Capacity)</strong>: 트래픽이 폭증하더라도 인스턴스 수가 이 한도를 초과하여 늘어나지 않습니다. 과도한 비용 청구를 막는 상한선 역할을 합니다.</li>
+<li><strong>원하는 용량(Desired Capacity)</strong>: Auto Scaling 그룹이 현재 시점에 실제로 유지하려고 노력하는 인스턴스 목표 개수입니다. 다양한 동적 조정 정책들은 이 원하는 용량 값을 최소 용량과 최대 용량 범위 내에서 자동으로 변경합니다.</li>
+</ul>
+<p>참고로 Auto Scaling 서비스 자체에는 별도의 추가 요금이 부과되지 않으며, 그룹에 의해 실제로 시작되어 동작하는 EC2 인스턴스와 EBS 볼륨 등의 기본 리소스 요금만 지불합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html">[1]</a></sup></p>
+
+<h3>핵심 구성 요소</h3>
+<ul>
+<li><strong>시작 템플릿(Launch Template)</strong>: 인스턴스를 시작할 때 필요한 AMI ID, 인스턴스 패밀리 및 크기, 키 페어, 보안 그룹, 사용자 데이터(User Data) 스크립트 등의 모든 구성 정보를 담고 있는 청사진입니다. 시작 템플릿은 <strong>버전 관리</strong>를 지원하므로 애플리케이션 업데이트나 패치 시 손쉽게 버전을 롤백하거나 전환할 수 있습니다. 과거에 사용되던 시작 구성(Launch Configuration)은 더 이상 새로운 기능이 지원되지 않으며, 온디맨드 인스턴스와 스팟 인스턴스를 하나의 그룹에 혼합 구성하거나 여러 인스턴스 유형을 동시에 지정하여 가용성을 극대화하는 기능은 오직 <strong>시작 템플릿</strong>에서만 가능합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/launch-templates.html">[3]</a></sup></li>
+<li><strong>다중 가용 영역(Multi-AZ) 분산과 자동 재조정(Rebalancing)</strong>: Auto Scaling 그룹을 생성할 때 여러 가용 영역에 속한 서브넷들을 지정하면, ASG는 가용 영역 간에 인스턴스 개수를 항상 균등하게 맞추어 배포합니다. 만약 특정 가용 영역에 장애가 발생하여 인스턴스가 중단되면, ASG는 즉시 정상 동작 중인 다른 가용 영역에 새 인스턴스를 프로비저닝하여 서비스 가용성을 유지합니다. 이후 장애가 발생했던 가용 영역이 복구되면 ASG는 인스턴스 분포의 균형을 맞추기 위해 자동으로 <strong>재조정 활동</strong>을 수행합니다. 이때 서비스 중단을 방지하기 위해 <em>새 인스턴스를 먼저 성공적으로 시작한 후</em>, 기존의 초과 인스턴스를 안전하게 종료하는 방식을 취합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/auto-scaling-benefits.html">[2]</a></sup></li>
+<li><strong>로드 밸런서 대상 그룹 연동</strong>: Auto Scaling 그룹을 ALB나 NLB의 대상 그룹(Target Group)에 연결해 두면, 확장이 발생하여 새 인스턴스가 생성되는 즉시 대상 그룹에 자동으로 등록(Registration)되어 트래픽을 받기 시작하고, 축소되어 종료되는 인스턴스는 자동으로 등록 취소(Deregistration)되어 안전하게 트래픽이 차단됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html">[1]</a></sup></li>
 </ul>
 
-<h2>수평 vs 수직 조정</h2>
+<h2>한눈에 비교하기: 수평 확장(Scale Out/In) vs 수직 확장(Scale Up/Down)</h2>
+<p>부하가 증가할 때 시스템 성능을 증설하는 방식에는 크게 두 가지 방향이 있습니다. 클라우드 아키텍처에서는 결함 격리와 무중단 운영을 위해 수평 확장을 강력하게 권장합니다.</p>
 <table>
-<tr><th></th><th>수평 (scale out / in)</th><th>수직 (scale up / down)</th></tr>
-<tr><td>방법</td><td>인스턴스 <strong>개수</strong>를 늘리고 줄임 (Auto Scaling 그룹)</td><td>인스턴스 <strong>유형</strong>을 더 크게/작게 변경</td></tr>
-<tr><td>중단</td><td>기존 인스턴스는 계속 동작</td><td>EBS 기반 인스턴스는 유형을 바꾸기 전에 <strong>중지해야 함</strong> → 다운타임 계획 필요<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/change-instance-type-of-ebs-backed-instance.html">[15]</a></sup></td></tr>
-<tr><td>Well-Architected</td><td colspan="2">신뢰성 설계 원칙: "큰 리소스 하나를 작은 리소스 여러 개로 바꿔 단일 장애의 영향을 줄여라"(수평 확장)<sup class="cite"><a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/design-principles.html">[14]</a></sup></td></tr>
+<tr><th>구분</th><th>수평 확장 (Scale Out / Scale In)</th><th>수직 확장 (Scale Up / Scale Down)</th></tr>
+<tr><td>확장 방법</td><td>인스턴스의 <strong>개수(대수)</strong>를 늘리고 줄입니다. (Auto Scaling 그룹 활용)</td><td>기존 인스턴스의 <strong>사양(유형)</strong>을 더 크거나 작게 바꿉니다. (예: t3.micro → c5.2xlarge)</td></tr>
+<tr><td>서비스 중단 여부</td><td>기존 인스턴스들이 정상 작동하는 상태에서 새 인스턴스가 추가되므로 <strong>무중단 확장</strong>이 가능합니다.</td><td>EBS 기반 인스턴스는 인스턴스 유형을 변경하려면 반드시 인스턴스를 <strong>중지(Stop)한 후 변경하고 다시 시작</strong>해야 하므로 필연적으로 다운타임이 발생합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/change-instance-type-of-ebs-backed-instance.html">[15]</a></sup></td></tr>
+<tr><td>Well-Architected 관점</td><td colspan="2">AWS Well-Architected 신뢰성 기둥의 핵심 설계 원칙: "단일 대형 리소스에 의존하지 말고, 여러 개의 작은 리소스로 분산하여 단일 장애 지점(SPOF)의 영향을 최소화하라." 수평 확장은 하나의 인스턴스가 고장 나더라도 전체 서비스가 중단되지 않는 견고한 내결함성을 제공합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/design-principles.html">[14]</a></sup></td></tr>
 </table>
 
-<h2>다섯 가지 조정 방식</h2>
+<h2>핵심 특징: 다섯 가지 조정 방식(Scaling Policies)</h2>
+<p>Auto Scaling 그룹은 워크로드의 성격과 예측 가능성에 따라 다양한 조정 방식을 제공합니다.</p>
 <table>
-<tr><th>방식</th><th>동작</th><th>이럴 때</th></tr>
-<tr><td><strong>대상 추적</strong> (target tracking)</td><td>지표와 목표값(예: 평균 CPU 50%)만 정하면 Auto Scaling이 CloudWatch 경보를 <strong>직접 만들고 관리</strong>하며 온도 조절기처럼 맞춤.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">[5]</a></sup> AWS가 <strong>강력히 권장</strong>하는 기본 선택<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scale-based-on-demand.html">[4]</a></sup></td><td>대부분의 동적 부하</td></tr>
-<tr><td><strong>단계</strong> (step)</td><td>경보 초과 <em>크기</em>에 따라 다른 조정량(예: 60%면 +10%, 70%면 +30%). 경보는 직접 만듦<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-simple-step.html">[6]</a></sup></td><td>임계값별로 더 공격적인 대응이 필요할 때</td></tr>
-<tr><td><strong>단순</strong> (simple)</td><td>조정량 하나, 활동마다 <strong>휴지 기간</strong>(cooldown, 기본 300초)을 기다림. AWS는 모범 사례로 단순 조정과 휴지 기간을 <strong>쓰지 말라</strong>고 권장<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scaling-cooldowns.html">[7]</a></sup></td><td>시험에서는 대개 오답</td></tr>
-<tr><td><strong>예약</strong> (scheduled)</td><td>지정한 시각(일회 또는 cron 반복)에 원하는·최소·최대 용량을 설정<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scheduled-scaling.html">[8]</a></sup></td><td>언제 부하가 바뀌는지 <strong>정확히 알 때</strong></td></tr>
-<tr><td><strong>예측</strong> (predictive)</td><td>과거 지표(최대 14일)를 분석해 일·주 패턴을 찾고 48시간을 예측해 <strong>미리</strong> 확장. 최소 24시간 데이터 필요. 처음엔 <em>예측 전용</em> 모드로 시작하며, 예측으로는 <strong>축소하지 않음</strong>(축소는 동적 정책이 담당)<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/predictive-scaling-policy-overview.html">[10]</a></sup></td><td>주기적 트래픽 + <strong>초기화가 오래 걸리는</strong> 앱<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-predictive-scaling.html">[9]</a></sup></td></tr>
+<tr><th>방식</th><th>동작 원리</th><th>적합한 시나리오</th></tr>
+<tr><td><strong>대상 추적</strong><br>(Target Tracking)</td><td>관리자가 추적할 지표와 목표값(예: "평균 CPU 사용률 50% 유지", "대상당 요청 수 1,000건 유지")만 지정하면, Auto Scaling이 필요한 CloudWatch 경보를 <strong>직접 자동으로 생성하고 관리</strong>합니다. 실내 온도를 일정하게 맞추는 에어컨 온도 조절기(Thermostat)처럼 동작합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">[5]</a></sup> AWS가 가장 <strong>강력하게 권장하는 기본 동적 조정 방식</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scale-based-on-demand.html">[4]</a></sup></td><td>트래픽 변동을 사전에 정확히 예측하기 어려운 대부분의 일반적인 웹/애플리케이션 부하.</td></tr>
+<tr><td><strong>단계 조정</strong><br>(Step Scaling)</td><td>CloudWatch 경보의 임계값을 초과한 <em>크기(격차)</em>에 따라 단계별로 서로 다른 조정 크기를 적용합니다 (예: CPU 사용률이 임계값보다 10% 높으면 +1대, 30% 이상 폭증하면 +5대). CloudWatch 경보는 관리자가 직접 생성해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-simple-step.html">[6]</a></sup></td><td>부하의 급격한 변동에 대응하여 경보 초과 정도에 따라 공격적이고 유연한 증설이 필요할 때.</td></tr>
+<tr><td><strong>단순 조정</strong><br>(Simple Scaling)</td><td>단 하나의 CloudWatch 경보에 반응하여 고정된 수량만큼 조정하고, 조정 활동이 일어날 때마다 <strong>휴지 기간(Cooldown, 기본 300초)</strong> 동안 모든 추가 조정을 잠급니다. AWS는 지연 반응과 비효율성 때문에 단순 조정 정책의 사용을 <strong>지양하고 대상 추적이나 단계 조정을 사용할 것을 권장</strong>합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scaling-cooldowns.html">[7]</a></sup></td><td>시험 시나리오에서는 대부분 비권장되는 구형 방식이자 오답 보기로 자주 등장합니다.</td></tr>
+<tr><td><strong>예약 조정</strong><br>(Scheduled Scaling)</td><td>특정 날짜와 시각(1회성 작업) 또는 cron 표현식 형태의 반복 주기에 맞추어 원하는 용량, 최소 용량, 최대 용량을 정해진 시점에 미리 변경합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scheduled-scaling.html">[8]</a></sup></td><td>매주 월요일 오전 9시 업무 시작, 매월 말일 결산, 정기 세일 행사 등 트래픽 증가 시점을 <strong>정확히 알고 있을 때</strong>.</td></tr>
+<tr><td><strong>예측 조정</strong><br>(Predictive Scaling)</td><td>최대 14일간의 과거 CloudWatch 사용량 지표를 머신러닝 알고리즘으로 분석하여 일간 및 주간 패턴을 학습한 뒤, 향후 48시간의 부하를 예측하여 트래픽 스파이크가 발생하기 전에 <strong>미리 선제적으로 인스턴스를 확장</strong>합니다. 최소 24시간 이상의 과거 데이터가 축적되어야 활성화되며, 오버프로비저닝을 방지하기 위해 예측 조정 단독으로는 <strong>축소(Scale-in)를 수행하지 않습니다</strong> (축소는 대상 추적과 같은 동적 정책에 맡김).<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/predictive-scaling-policy-overview.html">[10]</a></sup></td><td>주기적이고 반복적인 트래픽 패턴이 있으면서, 애플리케이션 부팅과 초기 설정에 <strong>10~20분 이상 오랜 시간이 걸려</strong> 동적 조정만으로는 초기 트래픽 급증을 제때 받아내지 못하는 환경.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-predictive-scaling.html">[9]</a></sup></td></tr>
 </table>
-<p>정책 여러 개가 동시에 발동하면 Auto Scaling은 <strong>가장 큰 용량</strong>을 주는 쪽을 택합니다. 가용성을 우선하는 설계입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scale-based-on-demand.html">[4]</a></sup> 예약 조정과 동적 정책도 함께 쓸 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scheduled-scaling.html">[8]</a></sup></p>
+<p>만약 동일한 Auto Scaling 그룹에 여러 정책이 구성되어 있고 동시에 발동된다면, Auto Scaling은 가용성을 최우선으로 보호하기 위해 <strong>가장 큰 용량을 요구하는 정책</strong>의 결정을 채택합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scale-based-on-demand.html">[4]</a></sup> 또한 예약 조정으로 기본 베이스라인 용량을 정해두고, 그 위에 대상 추적 정책을 결합하여 예측하지 못한 스파이크에 대응하는 하이브리드 구성도 실무에서 널리 활용됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scheduled-scaling.html">[8]</a></sup></p>
 
-<h3>지표 고르기</h3>
-<p>대상 추적에는 인스턴스 수에 <strong>반비례</strong>하는 지표가 맞습니다. 그룹을 두 배로 늘리면 값이 절반이 되는 지표입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scale-based-on-demand.html">[4]</a></sup> 미리 정의된 지표는 <code>ASGAverageCPUUtilization</code>, <code>ASGAverageNetworkIn</code>/<code>Out</code>, <code>ALBRequestCountPerTarget</code> 등입니다. 반대로 로드 밸런서 전체 <code>RequestCount</code>, 로드 밸런서 <code>Latency</code>, SQS의 <code>ApproximateNumberOfMessagesVisible</code> 그 자체는 대상 추적에 맞지 않습니다. EC2 지표는 기본 5분 간격이라 1분 간격의 <strong>세부 모니터링</strong>을 켜는 것이 권장됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">[5]</a></sup></p>
-<p>SQS 작업자 플릿은 <strong>인스턴스당 백로그</strong>(큐 길이 ÷ InService 인스턴스 수)를 지표로, <strong>허용 가능한 인스턴스당 백로그</strong>(허용 지연 ÷ 메시지당 평균 처리 시간)를 목표값으로 대상 추적합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-using-sqs-queue.html">[11]</a></sup> SQS 자체는 0014에서 다룹니다.</p>
+<h3>대상 추적에 적합한 지표 고르기</h3>
+<p>대상 추적 정책이 정상적으로 작동하려면 선택하는 지표가 인스턴스 개수와 <strong>정비례하거나 반비례하는 관계</strong>를 가져야 합니다. 즉, 인스턴스 수가 2배로 늘어나면 지표 값이 절반(1/2)으로 떨어지는 특성을 가진 지표여야만 시스템이 안정적으로 수렴할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scale-based-on-demand.html">[4]</a></sup></p>
+<ul>
+<li><strong>적합한 지표 (미리 정의된 표준 지표)</strong>:
+  <ul>
+    <li><code>ASGAverageCPUUtilization</code>: 그룹 전체 인스턴스의 평균 CPU 사용률 (인스턴스를 늘리면 평균 사용률이 즉시 희석되어 내려감)</li>
+    <li><code>ALBRequestCountPerTarget</code>: ALB 대상 그룹에 속한 정상 인스턴스 1대당 처리하는 평균 요청 수 (인스턴스가 늘어나면 1대당 할당되는 요청 수가 감소함)</li>
+    <li><code>ASGAverageNetworkIn</code> / <code>ASGAverageNetworkOut</code>: 인스턴스당 평균 네트워크 인/아웃 바이트 수</li>
+  </ul>
+</li>
+<li><strong>부적합한 지표 (오답 단골 함정)</strong>:
+  <ul>
+    <li>로드 밸런서의 전체 요청 수(<code>RequestCount</code>): 외부에서 유입되는 총 요청 수는 인스턴스를 아무리 늘려도 줄어들지 않으므로, ASG가 인스턴스를 최대치까지 무한정 증설해 버립니다.</li>
+    <li>로드 밸런서 요청 지연 시간(<code>TargetResponseTime</code> / <code>Latency</code>): 지연 시간은 백엔드 데이터베이스 병목, 외부 API 지연, 락(Lock) 경합 등 서버 대수와 무관한 다양한 요인으로 발생하므로 인스턴스 수 증감과 선형적인 비례 관계를 갖지 않습니다.</li>
+    <li>SQS 대기열의 대기 메시지 수(<code>ApproximateNumberOfMessagesVisible</code>) 그 자체: 인스턴스가 몇 대 있든 대기열에 쌓인 총 메시지 수는 즉각적으로 희석되지 않습니다.</li>
+  </ul>
+</li>
+</ul>
+<p>EC2 지표는 기본적으로 5분 간격으로 수집되므로, 트래픽 변화에 민첩하게 반응하려면 1분 단위로 지표를 수집하는 <strong>세부 모니터링(Detailed Monitoring)</strong>을 활성화하는 것이 모범 사례입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">[5]</a></sup></p>
 
-<h3>휴지 기간 vs 워밍업</h3>
-<p><strong>휴지 기간</strong>은 <em>단순</em> 조정 정책에만 적용됩니다. 대상 추적과 단계 조정은 휴지 기간을 기다리지 않고 바로 확장할 수 있으며, 대신 새 인스턴스마다 <strong>워밍업</strong> 기간을 둡니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scaling-cooldowns.html">[7]</a></sup> 워밍업이 끝나기 전의 인스턴스는 그룹 집계 지표에 들어가지 않고, 확장이 진행 중인 동안에는 축소가 막힙니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">[5]</a></sup></p>
+<p><strong>SQS 작업자(Worker) 풀의 스케일링 공식</strong>: SQS 큐의 메시지를 소비하는 EC2 인스턴스 풀을 대상 추적으로 확장할 때는, <strong>인스턴스당 백로그(Backlog per Instance)</strong>라는 사용자 지정 지표를 생성하여 추적해야 합니다. 이 지표는 <code>큐의 대기 메시지 수 ÷ 현재 서비스 중인(InService) 인스턴스 수</code>로 계산됩니다. 그리고 목표값으로는 <code>허용 가능한 메시지 지연 시간 ÷ 메시지 1건당 평균 처리 시간</code>을 설정합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-using-sqs-queue.html">[11]</a></sup> (예: 10초 내 처리를 원하고 메시지당 0.1초가 걸린다면 목표 백로그는 100건). 이렇게 설계해야만 큐에 쌓인 작업량과 현재 처리 인스턴스 수의 균형을 정확하게 맞출 수 있습니다.</p>
+
+<h3>휴지 기간(Cooldown) vs 인스턴스 준비 시간(Warmup)</h3>
+<p>과거의 <strong>단순 조정(Simple Scaling)</strong> 정책에서는 스케일 아웃이 발생하면 설정된 <strong>휴지 기간(Cooldown, 기본 300초)</strong> 동안 다른 모든 스케일링 활동이 전면 중단되었습니다. 새 인스턴스가 뜰 때까지 기다려서 중복 확장을 막기 위함이었지만, 급격한 트래픽 유입 시 제때 대응하지 못하는 치명적인 단점이 있었습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scaling-cooldowns.html">[7]</a></sup><br>
+반면 최신의 <strong>대상 추적(Target Tracking)</strong>과 <strong>단계 조정(Step Scaling)</strong> 정책은 전역 휴지 기간을 기다리지 않고 추가 확장이 즉시 일어날 수 있습니다. 대신 새로 생성된 개별 인스턴스마다 <strong>인스턴스 준비 시간(Warmup Period)</strong>을 부여합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scaling-cooldowns.html">[7]</a></sup> 준비 시간이 끝나기 전까지 해당 인스턴스는 그룹의 전체 지표 집계에서 제외되며, 확장이 진행되어 새로운 인스턴스가 준비 중인 동안에는 불필요한 축소(Scale-in) 활동이 일시적으로 차단되어 시스템의 진동을 방지합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">[5]</a></sup></p>
 
 <figure>
 <svg viewBox="0 0 600 150" role="img" aria-label="Auto Scaling 인스턴스 수명 주기: Pending, 시작 후크 대기, InService, 종료 후크 대기, Terminated" style="width:100%;height:auto;font-family:var(--sans)">
@@ -77,23 +106,33 @@
 </svg>
 </figure>
 
-<h2>상태 확인과 수명 주기 후크</h2>
+<h2>상태 확인(Health Check)과 수명 주기 후크(Lifecycle Hook)</h2>
 <ul>
-<li><strong>기본 상태 확인은 EC2 상태 확인</strong>뿐입니다. 인스턴스가 <code>running</code>이 아니거나 상태 확인이 <code>impaired</code>면 비정상으로 보고 교체합니다. <strong>ELB 상태 확인은 기본으로 무시</strong>되며, 그룹에서 켜야 로드 밸런서가 비정상이라 보고한 인스턴스를 교체합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/health-checks-overview.html">[12]</a></sup> 그래서 "OS는 살아 있는데 앱이 응답하지 않는" 인스턴스를 교체하려면 ELB 상태 확인을 켜야 합니다.</li>
-<li><strong>수명 주기 후크</strong>: 시작 직후 또는 종료 직전에 인스턴스를 대기 상태로 붙잡아 사용자 작업(소프트웨어 설치, 로그 백업)을 하게 합니다. 기본 대기 시간은 <strong>1시간</strong>이며, 작업이 끝나면 <code>complete-lifecycle-action</code>으로 계속 진행합니다. 종료 시 EventBridge로 알림을 받아 Lambda를 호출할 수 있습니다. 시작 후크로 부트스트랩이 끝난 뒤에 로드 밸런서에 등록되게 하는 것이 대표 용도입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html">[13]</a></sup></li>
+<li><strong>EC2 상태 확인 vs ELB 상태 확인의 결정적 차이</strong>:
+  <p>Auto Scaling 그룹의 기본 설정에서는 <strong>오직 EC2 상태 확인(EC2 Status Check)</strong> 결과만을 참조합니다. 즉, 하이퍼바이저 수준의 시스템 상태 확인과 OS 커널 부팅 여부만 확인하며, 인스턴스 상태가 <code>running</code>이고 상태 확인이 <code>impaired</code>가 아니라면 인스턴스를 완전히 정상으로 간주합니다. 하지만 실제 서비스에서는 OS는 멀쩡히 살아있으나 웹 서버 데몬이 죽었거나 메모리 누수로 인해 웹 애플리케이션 프로세스가 5xx 에러를 뿜으며 응답하지 않는 상황이 흔히 발생합니다.<br>
+  이때 로드 밸런서(ALB)는 상태 확인 프로브 실패로 해당 대상을 <code>unhealthy</code>로 감지하지만, <strong>Auto Scaling 그룹은 기본적으로 ELB의 상태 확인 결과를 완전히 무시</strong>하므로 해당 인스턴스를 교체하지 않고 방치합니다. 따라서 애플리케이션 레벨의 장애 인스턴스를 자동으로 종료하고 새 인스턴스로 자동 교체하려면, 반드시 Auto Scaling 그룹 설정에서 <strong>ELB 상태 확인 유형을 활성화</strong>해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/health-checks-overview.html">[12]</a></sup></p>
+</li>
+<li><strong>수명 주기 후크(Lifecycle Hooks)의 동작 원리</strong>:
+  <p>수명 주기 후크는 인스턴스가 생성되어 트래픽을 받기 직전(<code>Pending:Wait</code> 상태)이나, 축소되어 완전히 종료되기 직전(<code>Terminating:Wait</code> 상태)에 인스턴스를 일시 정지(Pause) 상태로 붙잡아 두는 기능입니다. 기본 대기 제한 시간은 <strong>1시간(3,600초)</strong>이며, 이 대기 시간 동안 관리자는 다음과 같은 커스텀 작업을 안전하게 수행할 수 있습니다:<sup class="cite"><a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html">[13]</a></sup></p>
+  <ul>
+    <li><strong>시작 후크(Launch Lifecycle Hook)</strong>: 인스턴스가 로드 밸런서에 등록되어 실제 사용자 트래픽을 전달받기 전에, 대용량 데이터베이스 캐시를 미리 워밍업하거나 필요한 소프트웨어 패키지 설치 및 환경 구성을 완벽히 완료할 수 있습니다.</li>
+    <li><strong>종료 후크(Termination Lifecycle Hook)</strong>: 인스턴스가 완전히 소멸하기 전에 EventBridge 알림을 트리거하여 Lambda 함수나 내부 스크립트를 통해 인스턴스 로컬 디스크에 남아있는 중요한 애플리케이션 로그, 트랜잭션 덤프 파일 등을 S3 버킷으로 안전하게 추출 및 백업할 수 있습니다.</li>
+  </ul>
+  <p>원하는 사전/사후 작업이 완료되면 AWS CLI나 API로 <code>complete-lifecycle-action</code> 명령을 호출하여 인스턴스를 다음 상태(InService 또는 Terminated)로 즉시 전환시킬 수 있습니다.</p>
+</li>
 </ul>
 
 <div class="callout">
-<p class="label">시험 단골: 키워드 → 답</p>
+<p class="label">시험에 자주 나오는 핵심 패턴</p>
 <ul>
-<li>"CPU를 약 50%로 유지", "운영 부담 최소" → <strong>대상 추적</strong></li>
-<li>"매주 금요일 18시", "분기 마감일" 처럼 시각을 앎 → <strong>예약 조정</strong></li>
-<li>"매일 반복되는 패턴" + "부팅·초기화가 오래 걸림" + "미리 확장" → <strong>예측 조정</strong></li>
-<li>"경보 초과 정도에 따라 다르게" → <strong>단계 조정</strong> / "휴지 기간" 보기는 대개 함정</li>
-<li>"앱은 죽었는데 인스턴스가 교체되지 않음" → 그룹에서 <strong>ELB 상태 확인 켜기</strong></li>
-<li>"종료 전에 로그 보관", "시작 시 설치 완료 후 트래픽" → <strong>수명 주기 후크</strong></li>
-<li>"SQS 큐 처리 작업자 확장" → <strong>인스턴스당 백로그</strong> 지표로 대상 추적</li>
-<li>"단일 대형 인스턴스, 확장 시 다운타임" → 작은 인스턴스 여러 대 + <strong>다중 AZ Auto Scaling 그룹</strong></li>
+<li>"평균 CPU 사용률을 약 50%로 유지하고 싶음", "경보 관리 오버헤드를 최소화" → <strong>대상 추적(Target Tracking) 조정 정책</strong></li>
+<li>"매주 금요일 18시", "분기 말일 오전 9시"처럼 트래픽 증가 시점을 정확히 알고 있음 → <strong>예약 조정(Scheduled Scaling)</strong></li>
+<li>"일간/주간 반복 패턴 존재" + "인스턴스 부팅과 초기화에 오랜 시간 소요" + "사전에 미리 확장" → <strong>예측 조정(Predictive Scaling)</strong></li>
+<li>"경보 임계값 초과 크기(격차)에 따라 단계별로 서로 다른 증설 수량 지정" → <strong>단계 조정(Step Scaling)</strong> (단순 조정이나 휴지 기간은 비권장/오답)</li>
+<li>"OS는 정상 작동 중이나 웹 애플리케이션이 먹통인데 인스턴스가 교체되지 않음" → Auto Scaling 그룹에서 <strong>ELB 상태 확인(Health Check) 켜기</strong></li>
+<li>"인스턴스가 종료되기 전에 로그를 S3에 보관", "시작 시 소프트웨어 설치가 완전히 끝난 뒤에만 트래픽 투입" → <strong>수명 주기 후크(Lifecycle Hooks)</strong></li>
+<li>"SQS 큐의 메시지를 처리하는 EC2 작업자 풀 확장" → <strong>인스턴스당 백로그(Backlog per Instance)</strong> 지표 기반 대상 추적</li>
+<li>"단일 대형 인스턴스 사용 중이며, 스펙 변경 시 다운타임 발생" → 작은 인스턴스 여러 대 + <strong>다중 AZ Auto Scaling 그룹을 통한 수평 확장(Scale Out)</strong></li>
 </ul>
 </div>
 
@@ -107,7 +146,7 @@
     <button class="opt">CPU 50% 대상 추적 정책을 사용</button>
     <button class="opt">수동 경보 기반 단계 조정 정책 사용</button>
   </div>
-  <div class="feedback"><p>대상 추적은 목표값만 정하면 경보를 Auto Scaling이 만들고 관리합니다. AWS가 강력히 권장하는 방식입니다. 단계·단순 조정은 경보를 직접 만들어야 하고, 단순 조정과 휴지 기간은 AWS가 쓰지 말라고 권하는 방식입니다. 예측할 수 없는 트래픽에 예약 조정은 맞지 않습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>CPU 50% 대상 추적 정책을 사용</strong>하는 것입니다. 대상 추적 정책은 관리자가 목표값(예: CPU 50%)만 지정하면 Auto Scaling 서비스가 CloudWatch 경보를 백그라운드에서 직접 생성하고 능동적으로 관리해 줍니다. 반면 단계 조정이나 단순 조정은 관리자가 CloudWatch 경보를 직접 수동으로 만들어 연결해야 하며, 단순 조정과 전역 휴지 기간은 AWS가 공식적으로 사용을 지양하는 구형 방식입니다. 또한 예측할 수 없이 변동하는 트래픽에는 정해진 시간에만 실행되는 예약 조정이 적합하지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
@@ -118,7 +157,7 @@
     <button class="opt">그룹의 최소 용량을 항상 20대로 고정해 둠</button>
     <button class="opt">단계 조정 정책에 아주 공격적인 조정량 추가</button>
   </div>
-  <div class="feedback"><p>언제 부하가 바뀌는지 정확히 알면 예약 조정입니다. cron 표현식으로 반복 일정을 만들고 원하는·최소·최대 용량을 지정하면 됩니다. 최소 20대 고정은 한 달 내내 16대를 놀립니다. 대상 추적이나 단계 조정은 부하가 생긴 <em>뒤에</em> 반응하므로 9시 정각에 20대를 보장하지 못합니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>cron 일정의 반복 예약 조정 작업을 생성</strong>하는 것입니다. 트래픽이나 작업 부하가 급증하는 시점을 정확하게 알고 있을 때는 예약 조정(Scheduled Scaling)이 가장 단순하고 확실한 솔루션입니다. 최소 용량을 항상 20대로 고정해 두면 한 달 중 나머지 29일 동안 16대의 인스턴스가 유휴 상태로 방치되어 막대한 비용 낭비가 발생합니다. 대상 추적이나 단계 조정은 실제 부하가 발생하여 CPU가 치솟은 <em>사후에</em> 반응하므로, 9시 정각에 20대의 준비된 인스턴스를 즉시 확보해 주지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
@@ -129,7 +168,7 @@
     <button class="opt">평일 오전마다 실행할 예약 조정 작업</button>
     <button class="opt">과거 패턴을 학습하는 예측 조정 정책</button>
   </div>
-  <div class="feedback"><p>주기적 트래픽 + 초기화가 오래 걸리는 앱 + "일정을 직접 관리하고 싶지 않음"이 예측 조정의 정의 그대로입니다. 예측된 부하보다 먼저 용량을 띄워 둡니다. 예약 조정도 동작은 하지만 사람이 일정을 정하고 유지해야 한다는 점에서 요구사항에 어긋납니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>과거 패턴을 학습하는 예측 조정 정책</strong>입니다. 문제의 핵심 단서는 세 가지입니다: (1) 주기적이고 반복적인 트래픽 패턴, (2) 인스턴스 부팅 및 애플리케이션 초기화에 10분 이상 소요되어 반응형 동적 조정으로는 지연이 발생함, (3) 관리자가 스케줄을 일일이 수동 관리하고 싶지 않음. 예측 조정은 과거 사용량을 머신러닝으로 분석하여 부하가 몰려오기 전에 미리 인스턴스를 띄워 둡니다. 예약 조정도 가능은 하지만 일정을 사람이 직접 생성하고 지속적으로 유지보수해야 하므로 요구사항에 부합하지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
@@ -140,7 +179,7 @@
     <button class="opt">교차 영역이 꺼져 있으니 대상 그룹에서 켜 줌</button>
     <button class="opt">최대 용량에 도달했으니 그룹 최대 용량을 올림</button>
   </div>
-  <div class="feedback"><p>Auto Scaling의 기본 상태 확인은 EC2 상태 확인뿐이고, ELB 상태 확인 결과는 기본으로 <strong>무시</strong>합니다. OS가 살아 있으면 EC2 상태 확인은 통과합니다. 그룹에서 ELB 상태 확인을 켜야 교체됩니다. 비정상 인스턴스 교체는 휴지 기간을 기다리지 않으므로 휴지 기간은 원인이 아닙니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>EC2 상태 확인만 쓰니 ELB 상태 확인을 켜는 것</strong>입니다. Auto Scaling 그룹의 기본 상태 확인은 오직 EC2 상태 확인뿐입니다. OS 커널과 하이퍼바이저가 정상 동작 중이라면 웹 애플리케이션 프로세스가 완전히 멈춰서 ALB가 <code>unhealthy</code>로 판정하더라도 ASG는 이를 인지하지 못하고 정상으로 간주합니다. 그룹 설정에서 ELB 상태 확인 유형을 활성화해야만 ALB의 판정을 수용하여 비정상 인스턴스를 즉시 종료하고 새 인스턴스로 자동 교체합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1,2">
@@ -151,7 +190,7 @@
     <button class="opt">로드 밸런서 요청 지연 시간 지표</button>
     <button class="opt">ALB 대상당 평균 요청 수 지표</button>
   </div>
-  <div class="feedback"><p>대상 추적 지표는 인스턴스 수에 비례해 변해야 합니다. 로드 밸런서가 받는 전체 요청 수는 인스턴스를 늘려도 줄지 않고, 지연 시간은 부하와 비례 관계가 보장되지 않아 AWS 문서가 명시적으로 부적합하다고 합니다. 평균 CPU와 <code>ALBRequestCountPerTarget</code>은 미리 정의된 대표 지표입니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>로드 밸런서의 전체 요청 수 지표</strong>와 <strong>로드 밸런서 요청 지연 시간 지표</strong>입니다. 대상 추적 정책에 사용되는 지표는 인스턴스 개수와 비례/반비례 관계가 명확해야 합니다. 로드 밸런서의 전체 요청 수는 인스턴스를 아무리 늘려도 줄어들지 않으므로 제어 루프가 통제 불능이 됩니다. 또한 지연 시간(Latency)은 데이터베이스 쿼리 병목이나 외부 네트워크 문제 등 인스턴스 대수와 무관한 변수에 크게 좌우되므로 부적합하다고 공식 문서에 명시되어 있습니다. 반면 평균 CPU 사용률과 대상당 요청 수(<code>ALBRequestCountPerTarget</code>)는 인스턴스를 늘리면 비례하여 값이 감소하므로 대상 추적에 완벽히 부합하는 사전 정의 지표입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
@@ -162,7 +201,7 @@
     <button class="opt">등록 취소 지연을 길게 늘려 기다리게 함</button>
     <button class="opt">축소 보호를 모든 인스턴스에 영구 적용함</button>
   </div>
-  <div class="feedback"><p>종료 수명 주기 후크는 인스턴스를 <code>Terminating:Wait</code>에 붙잡고(기본 1시간) EventBridge 알림을 보내, Lambda나 스크립트로 로그를 옮긴 뒤 <code>complete-lifecycle-action</code>으로 종료를 진행하게 합니다. 등록 취소 지연은 진행 중 <em>요청</em>을 마무리하는 기능이고, 영구 축소 보호는 축소 자체를 막습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>종료 수명 주기 후크로 잡아 두고 업로드</strong>하는 것입니다. 종료 수명 주기 후크(Termination Lifecycle Hook)를 설정하면 인스턴스가 종료되기 직전 <code>Terminating:Wait</code> 상태로 대기하며, 기본 1시간 동안 인스턴스가 살아있는 상태를 유지합니다. 이 시간 동안 EventBridge와 Lambda, 혹은 내부 스크립트를 통해 로그 파일을 안전하게 S3로 백업한 후 작업을 완료(complete-lifecycle-action)하면 인스턴스가 정상 종료됩니다. 등록 취소 지연(Deregistration Delay)은 이미 진행 중인 인플라이트 HTTP 요청을 마무리하기 위한 로드 밸런서의 기능이며 인스턴스 종료를 보류하는 기능이 아닙니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
@@ -173,7 +212,7 @@
     <button class="opt">ALB를 두고 고정 세션을 활성화함</button>
     <button class="opt">NLB에 Elastic IP를 연결</button>
   </div>
-  <div class="feedback"><p>NLB는 AZ마다 고정 IP를 갖고, 인터넷 경계면 서브넷당 Elastic IP 하나를 연결할 수 있습니다. ALB는 DNS 이름으로 접근하며 고정 IP 기능이 없습니다. Auto Scaling 그룹은 NLB 대상 그룹에도 그대로 연결됩니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>NLB에 Elastic IP를 연결</strong>하는 것입니다. NLB(Network Load Balancer)는 각 가용 영역의 서브넷마다 고정 IP를 가지며, 인터넷 경계 서브넷에 탄력적 IP(Elastic IP)를 직접 할당할 수 있습니다. 반면 ALB는 IP가 동적으로 계속 변하며 항상 DNS 도메인 이름으로만 접근해야 하므로 고정 IP 방화벽 요구사항을 충족할 수 없습니다. Auto Scaling 그룹은 ALB뿐만 아니라 NLB 대상 그룹의 백엔드로도 완벽하게 연동됩니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
@@ -184,30 +223,30 @@
     <button class="opt">작은 인스턴스 여러 대의 다중 AZ 그룹</button>
     <button class="opt">유형 변경 전 최대 절전으로 멈췄다 재개</button>
   </div>
-  <div class="feedback"><p>수직 조정은 EBS 기반 인스턴스를 <strong>중지해야</strong> 해서 다운타임이 생기고, 단일 인스턴스는 단일 장애 지점입니다. Well-Architected의 원칙대로 큰 리소스 하나를 작은 리소스 여러 개로 바꾸고, 로드 밸런서 뒤 다중 AZ Auto Scaling 그룹으로 수평 확장하면 두 문제가 함께 풀립니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>작은 인스턴스 여러 대의 다중 AZ 그룹</strong>으로 전환하는 것입니다. 기존의 단일 대형 인스턴스 방식(수직 확장)은 인스턴스 유형을 바꿀 때마다 인스턴스를 중지(Stop)해야 하므로 다운타임이 불가피하고, 인스턴스 고장 시 서비스 전체가 중단되는 단일 장애 지점(SPOF)을 만듭니다. AWS Well-Architected 신뢰성 원칙에 따라 로드 밸런서 뒤에 작은 인스턴스 여러 대를 다중 AZ Auto Scaling 그룹으로 배치하면 무중단 수평 확장(Scale Out)과 뛰어난 고가용성을 동시에 달성할 수 있습니다.</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) 조정 방식 다섯 가지와 각각을 고르는 단서는? (2) 대상 추적에 맞는 지표의 조건과 부적합한 지표 예는? (3) Auto Scaling 기본 상태 확인과 ELB 상태 확인의 관계는?</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
-  <button data-reveal>답 확인</button>
+  <p>교재를 보지 말고 기억을 떠올려 직접 정리해 보세요. (1) Auto Scaling 조정 정책 다섯 가지와 각 정책을 선택하게 만드는 핵심 상황 단서는 무엇인가요? (2) 대상 추적에 적합한 지표의 수학적 특성과 부적합한 대표 지표 두 가지는 무엇인가요? (3) Auto Scaling의 기본 상태 확인과 ELB 상태 확인의 차이점 및 관계는 무엇인가요?</p>
+  <textarea placeholder="여기에 직접 적어 보세요. 스스로 인출해 보는 과정이 장기 기억 형성에 큰 도움이 됩니다."></textarea>
+  <button data-reveal>정답 확인하기</button>
   <div class="answer">
-    <p>(1) 대상 추적: 목표값 유지, 경보 자동 관리, 기본 선택. 단계: 경보 초과 크기별 조정량. 단순: 조정량 하나 + 휴지 기간(비권장). 예약: 시각을 정확히 앎(cron). 예측: 반복 패턴 + 긴 초기화, 미리 확장(축소는 안 함), 최소 24시간 데이터.</p>
-    <p>(2) 인스턴스 수에 반비례해 변하는 지표(평균 CPU, ALBRequestCountPerTarget, 인스턴스당 SQS 백로그). 부적합: 로드 밸런서 전체 RequestCount, Latency, 큐 메시지 수 그 자체.</p>
-    <p>(3) 기본은 EC2 상태 확인만. ELB 상태 확인은 기본으로 무시되며, 그룹에서 켜야 로드 밸런서가 비정상이라 보고한 인스턴스를 교체함.</p>
+    <p>(1) <strong>대상 추적</strong>: 특정 목표값(CPU 50% 등)을 지정하면 CloudWatch 경보를 자동 관리하는 기본 권장 정책. <strong>단계 조정</strong>: 경보 임계값 초과 크기(격차)에 따라 단계별로 차등 증설. <strong>단순 조정</strong>: 1개 경보에 반응하며 전역 휴지 기간 동안 모든 조정이 잠김(AWS 비권장). <strong>예약 조정</strong>: cron이나 특정 시각 등 트래픽 증가 시점을 정확히 알 때 사용. <strong>예측 조정</strong>: 반복되는 일/주 패턴 + 10분 이상 긴 초기화 부팅 시간, 선제적으로 미리 확장(단독 축소는 미수행), 최소 24시간 데이터 필요.</p>
+    <p>(2) <strong>적합 조건</strong>: 인스턴스 개수를 늘리면 지표 값이 정비례 또는 반비례하여 감소/희석되는 지표 (평균 CPU 사용률, ALBRequestCountPerTarget, SQS 인스턴스당 백로그). <strong>부적합 지표</strong>: 로드 밸런서 전체 요청 수(인스턴스를 늘려도 줄지 않음), 로드 밸런서 지연 시간(Latency는 DB 등 외부 요인에 좌우되므로 인스턴스 수와 비례하지 않음), SQS 대기열의 단순 총 메시지 수.</p>
+    <p>(3) Auto Scaling 그룹의 <strong>기본 상태 확인은 EC2 상태 확인</strong>뿐입니다. 하이퍼바이저와 OS가 정상이면 웹 애플리케이션이 죽어서 ALB가 <code>unhealthy</code>로 표시하더라도 기본적으로 무시합니다. 애플리케이션 수준의 장애 인스턴스를 자동으로 감지하고 새 인스턴스로 교체하려면 Auto Scaling 그룹에서 반드시 <strong>ELB 상태 확인 유형을 활성화</strong>해야 합니다.</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">"Target tracking scaling policies for Amazon EC2 Auto Scaling"</a>. 특히 "Choose metrics" 절의 부적합 지표 목록은 시험에 그대로 나옵니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (선택, 프리 티어 범위)</strong>: t2.micro/t3.micro 시작 템플릿으로 최소 1·원하는 1·최대 2인 그룹을 만들고, 콘솔에서 인스턴스를 직접 종료해 Auto Scaling이 교체하는 것을 확인하세요. 끝나면 그룹을 삭제해야 인스턴스가 다시 생기지 않습니다.</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>1차 공식 문서 (권장 읽기, 약 10분)</strong>: AWS 공식 가이드인 <a href="https://docs.aws.amazon.com/autoscaling/ec2/userguide/as-scaling-target-tracking.html">"Target tracking scaling policies for Amazon EC2 Auto Scaling"</a> 문서를 꼭 확인해 보세요. 특히 "Choose metrics" 섹션에서 다루는 대상 추적 부적합 지표 목록은 자격증 시험에 매우 높은 빈도로 출제됩니다. (한국어 번역본은 URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>를 추가하면 열람 가능합니다.)</p>
+<p><strong>핸즈온 실습 (선택, 프리 티어 범위)</strong>: t2.micro 또는 t3.micro 기반 시작 템플릿을 생성하고, 최소 1대 · 원하는 용량 1대 · 최대 2대로 구성된 Auto Scaling 그룹을 만들어 보세요. 인스턴스가 <code>InService</code> 상태가 된 후 EC2 콘솔에서 해당 인스턴스를 임의로 강제 종료(Terminate)해 보십시오. Auto Scaling 그룹이 이를 감지하고 몇 분 내에 새로운 인스턴스를 자동으로 프로비저닝하여 원하는 용량을 회복하는 자가 치유(Self-Healing) 과정을 직접 확인할 수 있습니다. 실습이 끝난 후에는 불필요한 인스턴스가 계속 재생성되지 않도록 Auto Scaling 그룹을 먼저 삭제해야 합니다.</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q3(예약 vs 예측)과 Q4(ELB 상태 확인)는 보기 두 개가 모두 "돌아가는" 것처럼 보여 자주 틀리는 문제라, 어떤 단어를 근거로 골랐는지 말해 주면 다음 레슨을 조정하겠습니다.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>퀴즈 점수와 틀린 문제 번호가 있다면 편하게 공유해 주세요! 특히 Q3(예약 조정 vs 예측 조정)이나 Q4(기본 EC2 상태 확인 vs ELB 상태 확인)는 두 보기가 모두 맞는 것처럼 보여 많은 수험생들이 혼동하는 대표적인 문제입니다. 어떤 단어 때문에 오답을 선택하셨는지 남겨 주시면 보충 설명을 덧붙여 드리겠습니다.</p>
 </div>
 
 <h3>출처</h3>

@@ -11,27 +11,33 @@
 
 <p class="kicker">레슨 0026 · 도메인 4 비용 최적화 아키텍처 (20%) · Task 4.1–4.4</p>
 <h1>돈이 새는 곳 찾기:<br>데이터 전송·NAT 비용과 비용 관리 도구</h1>
-<p class="lede">도메인 4의 네 태스크(스토리지·컴퓨팅·DB·네트워크)는 모두 같은 지식 블록 두 개를 공유합니다. "비용 관리 도구"와 "어디서 전송 요금이 붙나"입니다. 오늘은 그 둘을 정리하고, 앞 유닛의 비용 결정(EC2 구매 옵션, S3 클래스, DynamoDB 용량 모드)을 한꺼번에 다시 꺼냅니다.</p>
+<p class="lede">AWS SAA 시험의 도메인 4(비용 최적화 아키텍처 설계)는 스토리지, 컴퓨팅, 데이터베이스, 네트워크의 4개 영역으로 구성되지만, 이 모든 영역을 관통하는 핵심 지식 블록은 결국 두 가지입니다. 바로 <strong>"어디서 네트워크 데이터 전송 요금이 발생하는가"</strong>와 <strong>"비용을 분석·통제·최적화하는 관리 도구들을 어떻게 조합하는가"</strong>입니다. 오늘 레슨에서는 청구서에서 가장 흔히 누수되는 데이터 전송 및 NAT 비용 구조를 명확히 이해하고, 앞선 레슨들에서 다룬 핵심 비용 결정 기준들을 한 번에 총정리합니다.</p>
 <div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 종합 시나리오 8문항</span><span>📌 <a href="../reference/data-edge-cost.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
 
-<h2>왜 이것부터인가</h2>
-<p><strong>시험에서</strong>: Task 4.1~4.4가 모두 "비용 할당 태그, 다중 계정 결제"와 "Cost Explorer, Budgets, Cost and Usage Report"를 지식 항목으로 반복하고, 4.4는 NAT 게이트웨이(공유 1개 vs AZ마다), 리전 간·AZ 간 전송, VPC 엔드포인트를 명시합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03-domain4.html">[1]</a></sup><br>
-<strong>실무에서</strong>: 첫 청구서에서 "NAT Gateway"와 "DataTransfer" 줄이 예상보다 큰 것은 아주 흔한 일입니다. 어디서 생기는지 알면 설계 단계에서 막을 수 있습니다.</p>
+<h2>왜 비용 최적화와 거버넌스를 배워야 할까요?</h2>
+<p><strong>시험 관점</strong>: 시험 가이드의 Task 4.1부터 4.4까지 모든 과제에서 비용 할당 태그(Cost Allocation Tags), 통합 결제(Consolidated Billing), 그리고 AWS Cost Explorer, AWS Budgets, Cost and Usage Report(CUR)의 활용법이 필수 지식으로 반복 출제됩니다. 특히 Task 4.4에서는 단일 공유 NAT 게이트웨이와 가용 영역(AZ)별 배포 간의 비용/가용성 트레이드오프, 리전 간 및 AZ 간 데이터 전송 요금, 그리고 VPC 엔드포인트를 통한 비용 절감 설계가 단골 문제로 다뤄집니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03-domain4.html">[1]</a></sup><br>
+<strong>실무 관점</strong>: 클라우드 도입 후 첫 달 청구서를 받았을 때 가장 당혹스러운 항목 중 하나가 바로 예상치 못한 "NAT Gateway 처리 요금"과 "Cross-AZ Data Transfer 요금"입니다. 데이터가 네트워크 경계를 넘나드는 원리를 미리 알고 설계에 반영하면, 불필요하게 새어 나가는 운영 비용의 수십 퍼센트를 사전 차단할 수 있습니다.</p>
 
-<h2>1. 데이터 전송: 어디서 요금이 붙나</h2>
-<p>정확한 단가는 서비스와 리전마다 다르니 외우지 않습니다. 시험에 필요한 것은 <strong>방향과 경계</strong>입니다. 아래는 Cost and Usage Report 문서가 설명하는 과금 구조입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/cur/latest/userguide/cur-data-transfers-charges.html">[2]</a></sup></p>
+<h2>1. 데이터 전송(Data Transfer): 비용이 발생하는 경계와 방향</h2>
+<p>AWS의 데이터 전송 요금은 리전이나 서비스마다 세부 단가가 조금씩 다르므로 숫자를 외울 필요는 없습니다. 시험과 실무에서 반드시 기억해야 할 것은 <strong>"데이터가 어느 경계를 넘는지"</strong>와 <strong>"데이터 이동 방향"</strong>입니다. 공식 Cost and Usage Report(CUR) 가이드가 정의하는 기본 과금 원칙은 다음과 같습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/cur/latest/userguide/cur-data-transfers-charges.html">[2]</a></sup></p>
 <table>
-<tr><th>경로</th><th>과금</th></tr>
-<tr><td>인터넷 → AWS (인바운드)</td><td><strong>무료</strong></td></tr>
-<tr><td>AWS → 인터넷 (아웃바운드)</td><td>과금</td></tr>
-<tr><td>같은 리전, <strong>AZ 간</strong></td><td>과금. 리소스마다 들어오는 쪽과 나가는 쪽 <strong>양방향</strong>이 계량됨. 단, 리전 내 트래픽이 무료인 서비스도 있으니 서비스 요금 페이지 확인</td></tr>
-<tr><td><strong>리전 간</strong></td><td>보내는(소스) 리전의 아웃바운드에 과금, 받는 리전의 인바운드는 무료</td></tr>
-<tr><td>AWS 오리진(S3, ELB, API Gateway) → CloudFront</td><td><strong>무료</strong>. CloudFront → 뷰어 전송만 과금<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[3]</a></sup></td></tr>
+<tr><th>네트워크 이동 경로</th><th>과금 여부 및 세부 규칙</th></tr>
+<tr><td>인터넷 → AWS (인바운드, 수신)</td><td><strong>100% 무료 (0달러)</strong>. 외부에서 AWS 내부로 들어오는 모든 트래픽에는 전송 요금이 붙지 않습니다.</td></tr>
+<tr><td>AWS → 인터넷 (아웃바운드, 송신)</td><td><strong>유료 과금</strong> (GB당 과금, 사용량 구간에 따라 단계별 할인).</td></tr>
+<tr><td>동일 리전 내 <strong>가용 영역 간 (Cross-AZ)</strong></td><td><strong>유료 과금</strong>. 데이터가 AZ 경계를 넘어가면 보내는 쪽(아웃바운드)과 받는 쪽(인바운드) <strong>양쪽 리소스 모두에 GB당 요금이 각각 계량</strong>됩니다. (단, S3나 DynamoDB처럼 리전 차원에서 제공되는 엔드포인트는 예외)</td></tr>
+<tr><td>서로 다른 <strong>리전 간 (Cross-Region)</strong></td><td><strong>유료 과금</strong>. 데이터를 보내는 소스(출발지) 리전의 아웃바운드 요금으로 과금되며, 받는 목적지 리전의 인바운드는 무료입니다.</td></tr>
+<tr><td>AWS 오리진(S3, ALB, API Gateway) → CloudFront</td><td><strong>100% 무료 (0달러)</strong>. 오리진에서 CloudFront 엣지로 이동하는 트래픽은 무료이며, 오직 CloudFront 엣지에서 사용자(뷰어)로 나가는 아웃바운드만 과금됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[3]</a></sup></td></tr>
 </table>
-<p>설계 원칙으로 옮기면: <strong>(a)</strong> 수다스러운 구성 요소는 같은 AZ에 두거나 트래픽이 AZ를 넘지 않게 라우팅하고, <strong>(b)</strong> 복제·백업처럼 리전을 넘는 트래픽은 필요한 만큼만 두며, <strong>(c)</strong> 인터넷으로 나가는 대용량 콘텐츠는 CloudFront 뒤에 둡니다(0025). 단, (a)는 고가용성(Multi-AZ)과 맞바꾸는 문제이므로 "비용만"이 아닌 요구 사항을 함께 읽어야 합니다.</p>
+<p><strong>아키텍처 설계 원칙</strong>:
+<ol>
+  <li><strong>동일 AZ 배치 vs 고가용성의 균형</strong>: 서로 통신이 잦은 마이크로서비스나 데이터베이스 클라이언트는 가능한 한 같은 가용 영역에 배치하면 AZ 간 전송 비용을 완전히 아낄 수 있습니다. 하지만 이는 Multi-AZ 고가용성 설계와 상충할 수 있으므로, 프로덕션 환경에서는 "비용 절감"과 "장애 복원력" 사이의 균형을 요구 사항에 맞게 판단해야 합니다.</li>
+  <li><strong>리전 간 전송 최소화</strong>: 교차 리전 복제(CRR)나 백업 전송은 꼭 필요한 데이터만 선별하여 전송합니다.</li>
+  <li><strong>CDN 캐싱 활용</strong>: 인터넷으로 나가는 대용량 다운로드 콘텐츠는 S3나 웹 서버에서 직접 쏘지 말고 CloudFront 뒤에 두어 오리진 아웃바운드 요금 면제 및 전송 단가 절감 혜택을 극대화합니다(0025).</li>
+</ol></p>
 
-<h2>2. NAT 게이트웨이: 시간 + 처리량, 그리고 AZ</h2>
-<p>NAT 게이트웨이는 <strong>사용 가능한 시간마다</strong>, 그리고 <strong>처리한 GB마다</strong> 과금됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-pricing.html">[4]</a></sup> 각 NAT 게이트웨이는 특정 AZ 하나에 만들어지고 그 AZ 안에서만 중복 구현됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html">[5]</a></sup></p>
+<h2>2. NAT 게이트웨이: 비용 구조와 아키텍처 최적화</h2>
+<p>VPC 내 프라이빗 서브넷의 리소스들이 외부 인터넷과 통신하기 위해 사용하는 <strong>NAT 게이트웨이(NAT Gateway)</strong>는 두 가지 항목으로 과금됩니다: <strong>(1) 게이트웨이가 프로비저닝되어 있는 시간당 요금(Hour)</strong> + <strong>(2) 게이트웨이를 거쳐 처리된 데이터양(GB당 처리 요금)</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-pricing.html">[4]</a></sup><br>
+특히 각 NAT 게이트웨이는 <strong>특정 가용 영역(AZ) 하나에 종속되어 생성</strong>되므로, 네트워크 구성에 따라 비용과 가용성이 크게 달라집니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html">[5]</a></sup></p>
 <figure>
 <svg viewBox="0 0 580 230" role="img" aria-label="AZ-b의 프라이빗 서브넷이 AZ-a의 NAT 게이트웨이를 쓰면 AZ 간 전송과 NAT 처리 요금이 붙고, S3로 가는 트래픽은 게이트웨이 엔드포인트로 보내면 NAT를 거치지 않음" style="width:100%;height:auto;font-family:var(--sans)">
   <defs><marker id="ah26" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
@@ -49,175 +55,239 @@
   <text x="305" y="175" text-anchor="middle" font-size="12" fill="var(--fg)">프라이빗 EC2</text>
   <rect x="45" y="150" width="140" height="40" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/>
   <text x="115" y="168" text-anchor="middle" font-size="11" fill="var(--fg)">게이트웨이 엔드포인트</text>
-  <text x="115" y="183" text-anchor="middle" font-size="10" fill="var(--muted)">S3 · DynamoDB, 추가 요금 없음</text>
+  <text x="115" y="183" text-anchor="middle" font-size="10" fill="var(--muted)">S3 · DynamoDB (추가 요금 0원)</text>
   <rect x="460" y="70" width="110" height="40" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="515" y="95" text-anchor="middle" font-size="12" fill="var(--fg)">인터넷</text>
   <rect x="460" y="150" width="110" height="40" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="515" y="175" text-anchor="middle" font-size="12" fill="var(--fg)">Amazon S3</text>
   <line x1="240" y1="150" x2="185" y2="112" stroke="var(--bad)" marker-end="url(#ah26b)"/>
-  <text x="250" y="122" font-size="10" fill="var(--bad)">① AZ 간 전송</text>
+  <text x="250" y="122" font-size="10" fill="var(--bad)">① AZ 간 전송 요금</text>
   <line x1="185" y1="92" x2="456" y2="90" stroke="var(--bad)" marker-end="url(#ah26b)"/>
-  <text x="320" y="84" text-anchor="middle" font-size="10" fill="var(--bad)">② NAT 처리 GB당</text>
+  <text x="320" y="84" text-anchor="middle" font-size="10" fill="var(--bad)">② NAT 처리 요금 (GB당)</text>
   <line x1="235" y1="178" x2="189" y2="172" stroke="var(--ok)" marker-end="url(#ah26g)"/>
   <path d="M115,190 C115,222 440,222 470,192" fill="none" stroke="var(--ok)" marker-end="url(#ah26g)"/>
-  <text x="300" y="214" text-anchor="middle" font-size="10" fill="var(--ok)">S3 트래픽은 NAT를 거치지 않음</text>
+  <text x="300" y="214" text-anchor="middle" font-size="10" fill="var(--ok)">S3 트래픽은 NAT를 거치지 않고 직통</text>
 </svg>
-<figcaption>빨간 경로: AZ-b의 인스턴스가 AZ-a의 NAT를 공유하면 AZ 간 전송과 NAT 처리 요금이 둘 다 붙습니다. 초록 경로: 게이트웨이 엔드포인트.</figcaption>
+<figcaption>빨간 경로: AZ-b의 인스턴스가 AZ-a의 단일 NAT를 공유하면 AZ 간 전송 요금과 NAT 처리 요금이 이중 부과됩니다. 초록 경로: 게이트웨이 엔드포인트로 NAT를 완전히 우회하여 비용을 0원으로 만듭니다.</figcaption>
 </figure>
-<p>AWS가 직접 권하는 절감법은 두 가지입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-pricing.html">[4]</a></sup></p>
+
+<h3>NAT 비용 절감을 위한 두 가지 황금률</h3>
 <ol class="rules">
-  <li><strong>AZ 간 트래픽이 크면</strong> 리소스를 NAT 게이트웨이와 같은 AZ에 두거나, 리소스가 있는 <strong>AZ마다 NAT 게이트웨이</strong>를 만듭니다.</li>
-  <li><strong>NAT를 지나는 트래픽 대부분이 AWS 서비스로 간다면</strong> 그 서비스의 <strong>게이트웨이 엔드포인트나 인터페이스 엔드포인트</strong>를 만듭니다. S3와 DynamoDB용 게이트웨이 엔드포인트는 <strong>추가 요금이 없습니다</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html">[6]</a></sup> 인터페이스 엔드포인트는 PrivateLink 요금이 따로 있으니 비교가 필요합니다.</li>
+  <li><strong>AZ 간 데이터 전송량이 많다면 가용 영역(AZ)마다 NAT 게이트웨이를 분리 배포합니다</strong>: 단일 NAT 게이트웨이를 모든 AZ가 공유하면 시간당 요금은 1개분만 내지만, 다른 AZ에서 발생하는 트래픽마다 "AZ 간 전송 요금"이 추가로 붙습니다. 또한 NAT가 위치한 AZ-a가 장애로 다운되면 다른 모든 AZ의 인스턴스들까지 인터넷 연결이 끊기는 치명적인 <strong>단일 장애점(SPOF)</strong>이 됩니다. 따라서 고트래픽 프로덕션 환경에서는 각 AZ마다 NAT 게이트웨이를 두고 동일 AZ의 NAT로 라우팅하는 것이 복원력과 비용 측면 모두에서 정답입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-pricing.html">[4]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html">[5]</a></sup></li>
+  <li><strong>S3 및 DynamoDB 트래픽은 게이트웨이 VPC 엔드포인트를 사용합니다</strong>: 프라이빗 인스턴스가 S3나 DynamoDB로 대용량 데이터를 읽고 쓸 때 NAT 게이트웨이를 거치게 두면 막대한 GB당 처리 요금이 청구됩니다. <strong>게이트웨이 VPC 엔드포인트(Gateway Endpoint)</strong>는 <strong>시간당 요금도, 데이터 처리 요금도 완전히 무료(0원)</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html">[6]</a></sup> 라우팅 테이블에 S3 접두사 목록 경로만 추가해 주면 모든 트래픽이 NAT를 건너뛰고 AWS 내부 직통망으로 흐르므로, NAT 처리 요금을 0원으로 만들 수 있습니다.</li>
 </ol>
 <table>
-<tr><th></th><th>NAT 게이트웨이 1개 공유</th><th>AZ마다 NAT 게이트웨이</th></tr>
-<tr><td>시간 요금</td><td>1개분</td><td>AZ 수만큼</td></tr>
-<tr><td>AZ 간 전송</td><td>다른 AZ의 리소스가 쓰면 발생</td><td>같은 AZ 라우팅이면 피함</td></tr>
-<tr><td>복원력</td><td>NAT의 AZ가 다운되면 다른 AZ 리소스도 인터넷 접근 상실<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html">[5]</a></sup></td><td>AZ 독립적 구조<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html">[5]</a></sup></td></tr>
-<tr><td>어울리는 곳</td><td>개발·테스트, 트래픽 적음</td><td>프로덕션, AZ 간 트래픽 큼</td></tr>
+<tr><th>비교 항목</th><th>단일 NAT 게이트웨이 공유 구성</th><th>AZ마다 NAT 게이트웨이 개별 배포</th></tr>
+<tr><td>시간당 고정 요금</td><td>1개 분량만 청구 (경제적)</td><td>가용 영역 개수만큼 청구 (AZ당 1개)</td></tr>
+<tr><td>AZ 간 전송 요금</td><td>다른 AZ의 인스턴스가 NAT를 이용할 때마다 발생</td><td>동일 AZ 내부에서 라우팅되므로 발생하지 않음</td></tr>
+<tr><td>장애 복원력 (HA)</td><td>NAT가 속한 AZ 장애 시 모든 서브넷의 아웃바운드 인터넷 마비 (SPOF)</td><td>특정 AZ 장애 시에도 다른 AZ는 독립적으로 인터넷 통신 유지</td></tr>
+<tr><td>적합한 환경</td><td>개발·테스트 환경, 트래픽이 적은 소규모 시스템</td><td><strong>트래픽이 많고 무중단 가용성이 중요한 프로덕션 환경</strong></td></tr>
 </table>
-<p><strong>NAT 인스턴스</strong>는 인스턴스 유형·크기와 사용 시간으로 과금되고, 가용성(장애 조치 스크립트)·패치를 직접 관리해야 합니다. AWS는 가용성·대역폭·관리 부담 면에서 NAT 게이트웨이를 권장합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-comparison.html">[7]</a></sup> 시험에서 NAT 인스턴스가 정답이 되는 경우는 "운영 부담을 감수하고 아주 작은 트래픽을 최저 비용으로" 같은 특수한 조건뿐입니다.</p>
+<p><small>참고: <strong>NAT 인스턴스(NAT Instance)</strong>는 EC2 인스턴스 위에서 직접 NAT 소프트웨어를 구동하는 방식입니다. 인스턴스 크기 비용만 들지만 대역폭 제한, 소프트웨어 패치, 고가용성 장애 조치 스크립트 작성 등 막대한 운영 부담이 발생합니다. 시험에서 NAT 인스턴스가 정답이 되는 경우는 "운영 오버헤드를 감수하고서라도 극도로 적은 트래픽을 최저 비용으로 처리해야 할 때" 같은 매우 특수한 예외뿐입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-comparison.html">[7]</a></sup></small></p>
 
-<h2>3. 비용 관리 도구: 무엇을 묻는가</h2>
+<h2>3. 핵심 비용 관리 도구 완전 정복</h2>
+<p>시험에 등장하는 비용 관리 도구들은 겉보기에 비슷해 보이지만 <strong>"해결하고자 하는 질문"</strong>이 명확히 다릅니다. 이 핵심 역할을 구별할 수 있어야 합니다.</p>
 <table>
-<tr><th>도구</th><th>질문</th><th>핵심</th></tr>
-<tr><td><strong>Cost Explorer</strong></td><td>"어디에 얼마 썼고 추세는?"</td><td>비용·사용량을 보고 분석. 최근 13개월, 향후 18개월 예측, RI 구매 권장. 콘솔 사용은 무료<sup class="cite"><a href="https://docs.aws.amazon.com/cost-management/latest/userguide/ce-what-is.html">[8]</a></sup>. Savings Plans 권장도 Cost Explorer에서<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/what-is-savings-plans.html">[9]</a></sup></td></tr>
-<tr><td><strong>AWS Budgets</strong></td><td>"한도를 넘기 <em>전에</em> 알려 줘"</td><td>비용·사용량·RI/Savings Plans 사용률·적용률 예산. <strong>실제 또는 예측</strong>이 임계값을 넘으면 이메일/SNS 알림. 예산 작업으로 IAM 정책 적용 같은 조치도 가능<sup class="cite"><a href="https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html">[10]</a></sup></td></tr>
-<tr><td><strong>Data Exports / CUR 2.0</strong></td><td>"가장 상세한 원천 데이터를 S3로"</td><td>가장 세분화된 비용·사용량 데이터를 정기적으로 S3에 내보냄. CUR 2.0이 권장 형식, 레거시 CUR도 내보내기 가능. Athena로 조회하거나 QuickSight 대시보드 연동<sup class="cite"><a href="https://docs.aws.amazon.com/cur/latest/userguide/what-is-data-exports.html">[11]</a></sup></td></tr>
-<tr><td><strong>비용 할당 태그</strong></td><td>"프로젝트·팀별로 나눠 봐"</td><td>AWS 생성 태그와 사용자 정의 태그. 둘 다 <strong>활성화해야</strong> Cost Explorer와 비용 할당 보고서에 나타남. 조직에서는 관리 계정만 태그 관리자에 접근<sup class="cite"><a href="https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/cost-alloc-tags.html">[12]</a></sup></td></tr>
-<tr><td><strong>통합 결제</strong> (Organizations)</td><td>"계정 여러 개, 청구서 하나"</td><td>관리 계정이 모든 멤버 계정 요금을 지불. 사용량을 합산해 볼륨 할인, RI 할인, Savings Plans를 공유. 추가 비용 없음<sup class="cite"><a href="https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/consolidated-billing.html">[13]</a></sup></td></tr>
-<tr><td><strong>Compute Optimizer</strong></td><td>"크기가 맞나, 놀고 있나?"</td><td>구성과 CloudWatch 지표(기본 14일)로 <strong>적정 크기(rightsizing) 권장</strong>과 유휴 리소스 식별. EC2, Auto Scaling 그룹, EBS, Lambda, Fargate의 ECS, RDS/Aurora, NAT 게이트웨이 등. 옵트인 필요<sup class="cite"><a href="https://docs.aws.amazon.com/compute-optimizer/latest/ug/what-is-compute-optimizer.html">[14]</a></sup></td></tr>
-<tr><td><strong>Trusted Advisor</strong></td><td>"모범 사례 대비 점검표"</td><td>비용 절감, 가용성·성능, 보안 기회를 점검.<sup class="cite"><a href="https://docs.aws.amazon.com/awssupport/latest/user/trusted-advisor.html">[15]</a></sup> 비용 점검 예: 사용률 낮은 EC2, 유휴 로드 밸런서, 저활용 EBS 볼륨, 연결 안 된 탄력적 IP, 비활성 NAT 게이트웨이<sup class="cite"><a href="https://docs.aws.amazon.com/awssupport/latest/user/cost-optimization-checks.html">[16]</a></sup></td></tr>
+<tr><th>도구 이름</th><th>핵심 질문 및 목적</th><th>상세 기능 및 시험 포인트</th></tr>
+<tr><td><strong>AWS Cost Explorer</strong></td><td>"과거에 어디에 얼마를 썼고, 앞으로의 지출 추세는 어떠한가?"</td><td>비용 및 사용량을 다각도로 시각화 분석하는 콘솔 도구. <strong>과거 최대 13개월 데이터 분석 및 향후 최대 18개월 예측(Forecasting)</strong> 제공. 예약 인스턴스(RI) 및 Savings Plans 추천 기능을 제공하며 콘솔 사용은 무료입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/cost-management/latest/userguide/ce-what-is.html">[8]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/what-is-savings-plans.html">[9]</a></sup></td></tr>
+<tr><td><strong>AWS Budgets</strong></td><td>"예산을 초과하기 <em>전에</em> 담당자에게 알리고 자동 조치를 취할 수 있는가?"</td><td>비용, 사용량, RI/Savings Plans 사용률 및 적용률에 대한 맞춤형 예산 설정. <strong>실제 지출뿐 아니라 예측(Forecasted) 지출이 설정한 임계값(예: 80%, 100%)을 넘을 때 이메일 또는 SNS 알림을 발송</strong>합니다. 나아가 <strong>예산 작업(Budget Actions)</strong>을 연동하여 임계값 초과 시 IAM 정책을 붙여 추가 리소스 생성을 막거나 EC2 인스턴스를 자동 중지하는 적극적 대응이 가능합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html">[10]</a></sup></td></tr>
+<tr><td><strong>Data Exports / CUR 2.0<br>(Cost and Usage Report)</strong></td><td>"원천 청구 데이터를 가장 상세한 수준으로 S3에 저장해 분석할 수 있는가?"</td><td>AWS에서 제공하는 <strong>가장 세분화되고 포괄적인 원천 비용 및 사용량 데이터</strong>를 S3 버킷으로 정기 내보내기합니다. 현재는 CUR 2.0이 권장 형식입니다. S3에 저장된 이 대규모 원천 데이터를 <strong>Amazon Athena로 표준 SQL 쿼리</strong>하거나 <strong>Amazon QuickSight 대시보드</strong>와 연동하여 커스텀 비용 보고서를 제작합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/cur/latest/userguide/what-is-data-exports.html">[11]</a></sup></td></tr>
+<tr><td><strong>비용 할당 태그<br>(Cost Allocation Tags)</strong></td><td>"특정 프로젝트나 부서별로 비용을 세부적으로 분류해 추적할 수 있는가?"</td><td>리소스에 붙인 메타데이터 태그를 결제에 매핑합니다. <strong>AWS 생성 태그</strong>와 <strong>사용자 정의 태그</strong>가 있습니다. <strong>핵심 주의점: 리소스에 태그를 달았다고 해서 자동으로 결제에 반영되지 않으며, 반드시 결제 콘솔의 비용 할당 태그 관리 화면에서 해당 태그를 '활성화(Activate)'해야만</strong> 비로소 Cost Explorer나 보고서에 집계되어 나타납니다(반영까지 최대 24시간 소요).<sup class="cite"><a href="https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/cost-alloc-tags.html">[12]</a></sup></td></tr>
+<tr><td><strong>통합 결제<br>(Consolidated Billing)</strong></td><td>"여러 계정의 결제를 하나로 묶고 볼륨 할인을 공유할 수 있는가?"</td><td>AWS Organizations를 기반으로 다중 계정의 청구를 단일 관리 계정(Management Account)으로 통합합니다. 모든 멤버 계정의 사용량을 합산하여 <strong>S3 스토리지나 데이터 전송 볼륨 할인 구간을 더 빠르게 달성</strong>할 수 있으며, 한 계정에서 구매한 RI나 Savings Plans 할인을 조직 내 다른 멤버 계정들과 자동 공유합니다(추가 비용 없음).<sup class="cite"><a href="https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/consolidated-billing.html">[13]</a></sup></td></tr>
+<tr><td><strong>AWS Compute Optimizer</strong></td><td>"현재 프로비저닝된 인스턴스 크기가 적절한가, 자원이 낭비되고 있지는 않은가?"</td><td>머신 러닝을 활용해 CloudWatch의 과거 사용률 지표(최소 14일 이상)를 분석하여 <strong>적정 크기 조정(Rightsizing) 권장 사항</strong>과 과대 프로비저닝되거나 유휴 상태인 리소스를 찾아냅니다. 대상: EC2, Auto Scaling 그룹, EBS 볼륨, Lambda 함수, ECS on Fargate, RDS 인스턴스, NAT 게이트웨이 등. (사용을 위한 사전 옵트인 필요)<sup class="cite"><a href="https://docs.aws.amazon.com/compute-optimizer/latest/ug/what-is-compute-optimizer.html">[14]</a></sup></td></tr>
+<tr><td><strong>AWS Trusted Advisor</strong></td><td>"AWS 모범 사례 관점에서 시스템 전체의 약점과 비용 낭비를 점검할 수 있는가?"</td><td>5대 기둥(비용 최적화, 성능, 보안, 내결함성, 서비스 한도) 전반을 자동 검사하는 종합 감사 도구입니다. 비용 최적화 점검 항목에는 <strong>사용률이 극히 낮은 EC2, 유휴 상태인 로드 밸런서, 미사용 EBS 볼륨, 인스턴스에 연결되지 않은 탄력적 IP(EIP), 비활성 NAT 게이트웨이</strong> 등이 포함됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/awssupport/latest/user/trusted-advisor.html">[15]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/awssupport/latest/user/cost-optimization-checks.html">[16]</a></sup></td></tr>
 </table>
-<p><small>Trusted Advisor 지원 플랜: 현재 문서 기준으로 전체 점검은 Business Support+, Enterprise Support, Unified Operations 플랜에서 쓸 수 있고, Basic 플랜은 서비스 한도 전부와 일부 보안·내결함성 점검만 제공합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/awssupport/latest/user/trusted-advisor.html">[15]</a></sup> 시험 문제가 예전 플랜 이름(Business/Enterprise)을 쓰더라도 "전체 점검은 상위 지원 플랜"이라는 구조는 같습니다.</small></p>
-<p><strong>헷갈리는 쌍</strong>: Cost Explorer는 <em>과거 분석과 예측</em>, Budgets는 <em>임계값 알림·조치</em>. Compute Optimizer는 <em>적정 크기 권장</em>, Trusted Advisor는 <em>여러 범주의 점검표</em>. CUR/Data Exports는 <em>가장 상세한 원천 데이터</em>.</p>
+<p><small>참고: Trusted Advisor의 전체 검사는 Business Support 이상 플랜에서 활성화되며, Basic 플랜에서는 핵심 보안 점검과 서비스 한도 점검 등 일부만 제공됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/awssupport/latest/user/trusted-advisor.html">[15]</a></sup></small></p>
 
-<h2>4. 앞 유닛의 비용 결정, 한 표로</h2>
+<p><strong>자주 헷갈리는 도구 쌍 비교</strong>:
+<ul>
+  <li><strong>Cost Explorer vs Budgets</strong>: Cost Explorer는 과거 사용 추이를 분석하고 미래를 예측하는 <em>조회·분석 도구</em>이고, Budgets는 임계값을 정해 두고 넘기 전에 경고를 보내고 조치를 취하는 <em>사전 알림·대응 도구</em>입니다.</li>
+  <li><strong>Compute Optimizer vs Trusted Advisor</strong>: Compute Optimizer는 CloudWatch 메트릭을 바탕으로 인스턴스 vCPU/메모리 사양을 올리거나 내리는 <em>Rightsizing(적정 사이징)</em>에 집중하고, Trusted Advisor는 미연결 EIP나 유휴 ELB 등 <em>AWS 모범 사례 체크리스트</em> 관점에서 인프라를 종합 진단합니다.</li>
+</ul></p>
+
+<h2>4. 이전 레슨의 비용 결정 요인 한눈에 복습하기</h2>
 <table>
-<tr><th>영역</th><th>신호 → 선택</th></tr>
-<tr><td>EC2 (<a href="0010-ec2-instances-and-pricing.html">0010</a>)</td><td>중단 가능한 배치·분석 → <strong>Spot</strong>(여유 용량, 2분 전 중단 알림)<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[17]</a></sup> · 1년/3년 꾸준한 사용, 패밀리·리전·Fargate·Lambda까지 유연하게 → <strong>Compute Savings Plans</strong><sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/what-is-savings-plans.html">[9]</a></sup> · 적정 크기는 Compute Optimizer로</td></tr>
-<tr><td>S3 (<a href="0018-s3-storage-classes-lifecycle.html">0018</a>)</td><td>접근 패턴 모름/변함 → <strong>Intelligent-Tiering</strong>(조회 요금 없음, 객체당 모니터링 요금) · 드물게 접근, 밀리초 필요 → Standard-IA(최소 30일, 조회 요금) · 재생성 가능 → One Zone-IA · 연 1회 미만, 몇 시간 복원 허용 → <strong>Glacier Deep Archive</strong>(최소 180일)<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[18]</a></sup> · 남이 내려받는 비용은 요청자가 → <strong>Requester Pays</strong>(소유자는 저장 비용만, 익명 접근 불가)<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/RequesterPaysBuckets.html">[19]</a></sup></td></tr>
-<tr><td>DynamoDB (<a href="0022-dynamodb-and-elasticache.html">0022</a>)</td><td>트래픽 예측 불가·신규 → <strong>온디맨드</strong>(요청당 과금, 대부분 워크로드의 기본·권장) · 꾸준하고 예측 가능한 성장 → <strong>프로비저닝</strong>(설정한 용량에 시간당 과금, 비용 예측 가능)<sup class="cite"><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/capacity-mode.html">[20]</a></sup></td></tr>
+<tr><th>서비스 영역</th><th>핵심 시나리오 → 최적의 비용 선택 기준</th></tr>
+<tr><td>EC2 구매 옵션<br>(<a href="0010-ec2-instances-and-pricing.html">레슨 0010</a>)</td><td>중간에 중단되어도 무방한 분산 배치, 렌더링, 빅데이터 분석 → <strong>스팟 인스턴스(Spot Instances)</strong> (최대 90% 할인, 2분 전 중단 알림)<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[17]</a></sup><br>1년/3년 동안 지속적으로 꾸준한 사용량이 있고 패밀리, OS, 리전, Fargate, Lambda까지 유연하게 바꾸고 싶다면 → <strong>Compute Savings Plans</strong><sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/what-is-savings-plans.html">[9]</a></sup><br>인스턴스 스펙이 과도하게 크다면 → <strong>Compute Optimizer</strong>로 다운사이징</td></tr>
+<tr><td>S3 스토리지 클래스<br>(<a href="0018-s3-storage-classes-lifecycle.html">레슨 0018</a>)</td><td>접근 패턴을 전혀 예측할 수 없거나 시간에 따라 불규칙하게 변함 → <strong>S3 Intelligent-Tiering</strong> (데이터 검색 요금 없음, 객체당 자동 티어링 모니터링 비용)<br>접근 빈도는 낮지만 필요 시 수 밀리초 내 즉시 응답 필요 → <strong>S3 Standard-IA</strong> (최소 보관 30일, 조회 요금 부과)<br>재생성 가능한 부차적 데이터의 저비용 저장 → <strong>S3 One Zone-IA</strong> (단일 AZ 저장)<br>규정상 보관하며 연 1회 미만 접근, 몇 시간의 복원 지연 허용 → <strong>S3 Glacier Deep Archive</strong> (최저 스토리지 비용, 최소 보관 180일)<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html">[18]</a></sup><br>외부 사용자가 내 버킷 데이터를 다운로드할 때 전송 비용을 다운로더에게 전가 → <strong>요청자 지불(Requester Pays)</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/RequesterPaysBuckets.html">[19]</a></sup></td></tr>
+<tr><td>DynamoDB 용량 모드<br>(<a href="0022-dynamodb-and-elasticache.html">레슨 0022</a>)</td><td>신규 런칭, 트래픽을 예측할 수 없거나 갑작스러운 스파이크 발생 → <strong>온디맨드 모드 (On-Demand)</strong> (사전 프로비저닝 없이 실제 요청당 과금, 기본 권장)<br>트래픽이 꾸준하고 사용량이 예측 가능한 대규모 워크로드 → <strong>프로비저닝 모드 (Provisioned)</strong> + Auto Scaling (용량 단위별 시간당 과금, 예약 용량 구매로 추가 절감 가능)<sup class="cite"><a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/capacity-mode.html">[20]</a></sup></td></tr>
 </table>
 
 <div class="callout">
-<p class="label">시험 단골: 키워드 → 정답</p>
-<p><strong>프라이빗 서브넷 → S3 대용량, NAT 요금 큼</strong> → S3 게이트웨이 엔드포인트 · <strong>AZ 간 NAT 트래픽</strong> → AZ마다 NAT + 같은 AZ 라우팅 · <strong>예측 지출이 한도 초과 전 알림</strong> → Budgets · <strong>지난 1년 추세, 서비스별 분석</strong> → Cost Explorer · <strong>팀·프로젝트별 비용</strong> → 비용 할당 태그 활성화 · <strong>여러 계정 할인 합산</strong> → 통합 결제 · <strong>과대 프로비저닝 EC2</strong> → Compute Optimizer · <strong>가장 상세한 청구 데이터를 Athena로</strong> → CUR 2.0(Data Exports) · <strong>전 세계 다운로드 전송비</strong> → CloudFront</p>
+<p class="label">시험에 자주 나오는 핵심 패턴: 키워드 → 정답 공식</p>
+<p><strong>프라이빗 서브넷에서 S3로의 대용량 트래픽, NAT 처리 비용이 과다</strong> → S3 게이트웨이 VPC 엔드포인트(무료) 추가 · <strong>여러 AZ가 공유하는 NAT로 인한 AZ 간 전송비 및 가용성 문제</strong> → AZ마다 NAT 게이트웨이 개별 배치 및 동일 AZ 라우팅 · <strong>예상 지출이 예산 한도를 초과할 것으로 예측될 때 선제적 알림/자동화 조치</strong> → AWS Budgets (예측 알림 및 Budget Actions) · <strong>과거 1년 비용 추세 분석, 향후 지출 예측, RI 추천</strong> → AWS Cost Explorer · <strong>프로젝트별/부서별 비용 분리 집계</strong> → 결제 콘솔에서 비용 할당 태그(Cost Allocation Tags) 활성화 · <strong>여러 계정의 사용량을 합산하여 볼륨 할인 및 할인 약정 공유</strong> → AWS Organizations 통합 결제(Consolidated Billing) · <strong>과대 프로비저닝된 인스턴스 사양 최적화</strong> → AWS Compute Optimizer 권장 사항 · <strong>미사용 탄력적 IP, 유휴 ELB, 비활성 리소스 점검</strong> → AWS Trusted Advisor 비용 점검표 · <strong>가장 세분화된 원천 결제 데이터를 S3에 저장하고 Athena로 SQL 분석</strong> → AWS Cost and Usage Report (Data Exports CUR 2.0) · <strong>전 세계 인터넷 아웃바운드 데이터 전송 비용 절감</strong> → Amazon CloudFront 엣지 캐싱</p>
 </div>
 
 <h2>연습</h2>
-<p>도메인 4는 앞 유닛과 섞여 나옵니다. 아래 문항도 일부러 섞었습니다.</p>
+<p>비용 최적화 도메인은 이전의 컴퓨팅, 스토리지, 데이터베이스, 네트워크 지식이 복합적으로 얽혀 출제됩니다. 아래 문항들을 통해 실전 문제 해결력을 점검해 보세요.</p>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q1. 프로덕션 VPC의 세 AZ에 프라이빗 서브넷이 있고, 모두 AZ-a의 NAT 게이트웨이 하나로 인터넷에 나갑니다. 청구서에 AZ 간 전송 요금이 크고, 보안팀은 AZ-a 장애 시 다른 AZ도 외부 API를 못 부르는 점을 지적했습니다. 가장 적합한 조치는?</p>
+  <p class="q-title">Q1. 프로덕션 VPC 내 3개의 가용 영역(AZ-a, AZ-b, AZ-c)에 각각 프라이빗 서브넷이 존재하며, 현재 모든 서브넷의 아웃바운드 인터넷 트래픽이 AZ-a에 배치된 단일 NAT 게이트웨이 하나를 공유하여 외부로 나가고 있습니다. 월간 청구서에서 가용 영역 간(Cross-AZ) 데이터 전송 요금이 매우 크게 발생하고 있으며, 보안 및 운영팀은 AZ-a에 장애가 발생할 경우 다른 두 AZ의 인스턴스들까지 외부 결제 API를 호출할 수 없게 되는 단일 장애점(SPOF)을 지적했습니다. 비용과 고가용성을 동시에 만족하는 가장 올바른 조치는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">NAT 게이트웨이를 NAT 인스턴스 한 대로 교체한다</button>
-    <button class="opt">AZ-a의 NAT 게이트웨이 크기를 더 크게 늘려 줌</button>
-    <button class="opt">AZ마다 NAT 게이트웨이를 두고 같은 AZ로 라우팅</button>
-    <button class="opt">모든 프라이빗 서브넷을 퍼블릭 서브넷으로 전환해 둔다</button>
+    <button class="opt">NAT 게이트웨이를 제거하고 저렴한 단일 NAT 인스턴스로 교체한다</button>
+    <button class="opt">AZ-a에 위치한 기존 NAT 게이트웨이의 인스턴스 사양을 더 큰 크기로 업그레이드한다</button>
+    <button class="opt">각 가용 영역마다 NAT 게이트웨이를 하나씩 배포하고 각 서브넷이 동일 AZ의 NAT로 라우팅되도록 수정한다</button>
+    <button class="opt">모든 프라이빗 서브넷을 퍼블릭 서브넷으로 전환하고 모든 인스턴스에 탄력적 IP를 부여한다</button>
   </div>
-  <div class="feedback"><p>AZ마다 NAT 게이트웨이를 두고 각 서브넷이 같은 AZ의 NAT를 쓰게 라우팅하면 AZ 간 전송을 피하고 AZ 독립적 구조가 됩니다. NAT 게이트웨이는 크기를 고르는 제품이 아니며, NAT 인스턴스 한 대는 여전히 단일 장애점입니다. 퍼블릭 서브넷 전환은 보안 요구와 반대입니다(0004, 0006).</p></div>
+  <div class="feedback"><p><strong>정답은 각 AZ마다 NAT 게이트웨이를 하나씩 배포하고 동일 AZ의 NAT로 라우팅하는 것입니다.</strong><br>
+  각 가용 영역마다 NAT 게이트웨이를 독립적으로 배치하면 인스턴스들의 인터넷 아웃바운드 트래픽이 동일 AZ 내부에서만 순환하므로 <strong>AZ 간 데이터 전송 요금이 원천적으로 발생하지 않습니다</strong>. 또한 특정 AZ에 재해가 발생하더라도 다른 AZ의 NAT 게이트웨이는 정상 작동하므로 <strong>AZ 독립적 고가용성 구조</strong>가 완성됩니다.<br>
+  - <strong>오답 분석</strong>:
+  - NAT 인스턴스 교체: 여전히 단일 인스턴스이므로 SPOF 문제가 해결되지 않으며, 관리 부담이 증가합니다.
+  - NAT 게이트웨이 크기 업그레이드: NAT 게이트웨이는 사용자가 크기나 인스턴스 타입을 선택하는 제품이 아니며(트래픽에 따라 최대 100Gbps까지 자동 확장), 단일 AZ 집중 구조를 바꾸지 못합니다.
+  - 퍼블릭 서브넷 전환: 프라이빗 인스턴스를 직접 인터넷에 노출시키는 치명적인 보안 위반입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q2. 프라이빗 서브넷의 분석 서버들이 매일 수 TB를 같은 리전의 S3에서 읽고, 이 트래픽이 NAT 게이트웨이를 지납니다. NAT 비용을 가장 비용 효율적으로 줄이는 방법은?</p>
+  <p class="q-title">Q2. 프라이빗 서브넷에서 실행되는 대규모 데이터 분석 애플리케이션 EC2 인스턴스들이 매일 수십 테라바이트(TB)의 데이터를 동일 리전의 Amazon S3 버킷에서 지속적으로 읽어 들이고 있습니다. 현재 이 모든 S3 트래픽이 NAT 게이트웨이를 통과하고 있어 매달 엄청난 양의 데이터 처리 요금이 청구되고 있습니다. 아키텍처를 변경하여 NAT 처리 요금을 가장 비용 효율적으로 없애는 방법은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">S3용 게이트웨이 VPC 엔드포인트를 만들어 라우팅함</button>
-    <button class="opt">S3 Transfer Acceleration을 활성화</button>
-    <button class="opt">NAT 게이트웨이를 각 AZ에 하나씩 더 추가해 둔다</button>
-    <button class="opt">S3 앞에 CloudFront 배포를 두고 받아 온다</button>
+    <button class="opt">S3 전용 게이트웨이 VPC 엔드포인트를 생성하고 프라이빗 라우팅 테이블에 연결한다</button>
+    <button class="opt">Amazon S3 버킷에 S3 Transfer Acceleration을 활성화한다</button>
+    <button class="opt">비용을 분산하기 위해 각 가용 영역에 NAT 게이트웨이를 하나씩 추가로 생성한다</button>
+    <button class="opt">S3 버킷 앞단에 CloudFront 배포를 생성하고 거기로 요청을 보낸다</button>
   </div>
-  <div class="feedback"><p>S3 게이트웨이 엔드포인트는 추가 요금이 없고, 라우팅 테이블의 접두사 목록 경로로 S3 트래픽이 NAT를 거치지 않게 합니다. NAT를 늘려도 GB당 처리 요금은 그대로이고, Transfer Acceleration이나 CloudFront는 트래픽이 NAT를 지나는 경로 자체를 바꾸지 않습니다.</p></div>
+  <div class="feedback"><p><strong>정답은 S3 전용 게이트웨이 VPC 엔드포인트를 생성하고 라우팅 테이블에 연결하는 것입니다.</strong><br>
+  Amazon S3용 <strong>게이트웨이 VPC 엔드포인트(Gateway Endpoint)</strong>는 <strong>시간당 요금도, 데이터 처리 요금도 완전히 무료(0원)</strong>입니다. 프라이빗 서브넷의 라우팅 테이블에 엔드포인트 경로를 등록하면 S3로 향하는 모든 트래픽이 NAT 게이트웨이를 완벽히 우회하여 AWS 내부 직통망으로 흐르므로, 수십 TB에 달하던 NAT 데이터 처리 요금을 단 1원도 들이지 않고 0원으로 절감할 수 있습니다.<br>
+  - <strong>오답 분석</strong>:
+  - S3 Transfer Acceleration: CloudFront 엣지를 활용한 원거리 전송 가속 기능으로 추가 요금이 발생하며, VPC 내부 인스턴스의 NAT 통과 문제를 해결하지 못합니다.
+  - NAT 게이트웨이 추가: NAT를 여러 개 만들어도 트래픽의 총합에 따라 부과되는 GB당 NAT 데이터 처리 요금은 전혀 줄어들지 않고 오히려 시간당 요금만 늘어납니다.
+  - CloudFront 배포: VPC 내부 리소스가 S3를 읽는 데 적합하지 않으며 여전히 인터넷/NAT 경로를 탈 수 있습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q3. 재무팀은 월 지출이 정해진 금액을 넘을 것으로 <em>예측되는 시점</em>에 이메일과 SNS로 알림을 받고, 개발 계정에서는 추가 리소스 생성을 막는 조치까지 자동으로 걸고 싶어 합니다. 어떤 도구입니까?</p>
+  <p class="q-title">Q3. 한 기업의 재무 관리자가 당월 AWS 청구 금액이 사전에 설정한 예산을 초과할 것으로 <em>예측되는 시점</em>에 이메일과 모바일 SNS로 선제적 알림을 받기를 원합니다. 또한 개발(Dev) 계정에서는 지출 예측치가 예산 한도에 도달했을 때 추가적인 비싼 리소스 생성을 막기 위해 특정 IAM 거부 정책을 자동으로 적용하는 조치까지 구현하고자 합니다. 최소한의 관리 노력으로 이를 구현할 수 있는 도구는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">AWS Cost Explorer의 보고서</button>
-    <button class="opt">AWS Trusted Advisor 점검</button>
-    <button class="opt">Compute Optimizer의 권장안</button>
-    <button class="opt">AWS Budgets의 예산과 예산 작업</button>
+    <button class="opt">AWS Cost Explorer의 월간 보고서 및 대시보드</button>
+    <button class="opt">AWS Trusted Advisor의 비용 최적화 점검 항목</button>
+    <button class="opt">AWS Compute Optimizer의 비용 절감 권장 사항</button>
+    <button class="opt">AWS Budgets의 예산 설정 및 예산 작업(Budget Actions)</button>
   </div>
-  <div class="feedback"><p>Budgets는 실제 또는 예측 지출이 임계값을 넘으면 이메일/SNS로 알리고, 예산 작업으로 IAM 정책 적용 같은 조치를 걸 수 있습니다. Cost Explorer는 분석과 예측 화면이지 임계값 알림·조치 도구가 아닙니다.</p></div>
+  <div class="feedback"><p><strong>정답은 AWS Budgets의 예산 설정 및 예산 작업(Budget Actions)입니다.</strong><br>
+  AWS Budgets는 실제 누적 지출뿐 아니라 <strong>머신러닝 기반의 예측(Forecasted) 지출이 설정한 한도를 초과할 것으로 예상될 때</strong> 사전에 이메일과 SNS 알림을 발송할 수 있습니다. 또한 <strong>예산 작업(Budget Actions)</strong> 기능을 연결하면 임계값 도달 시 특정 IAM 정책을 자동으로 적용하여 리소스 생성을 차단하거나 특정 EC2/RDS 인스턴스를 자동으로 중지하는 등 사전 정의된 조치를 자동 실행할 수 있습니다.<br>
+  - <strong>오답 분석</strong>:
+  - Cost Explorer: 과거 지출을 분석하고 시각화하는 도구이며, 임계값 기반의 자동 경보 및 자동화 액션을 지원하지 않습니다.
+  - Trusted Advisor: 인프라의 모범 사례 준수 여부를 점검하는 정적 체크리스트 도구입니다.
+  - Compute Optimizer: 개별 리소스의 사이징 최적화를 제안하는 도구입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q4. 한 계정에서 여러 프로젝트가 리소스를 공유합니다. 경영진이 Cost Explorer에서 프로젝트별 비용을 보고 싶어 합니다. 리소스에 <code>Project</code> 태그는 이미 붙어 있는데 Cost Explorer에 나타나지 않습니다. 무엇이 빠졌습니까?</p>
+  <p class="q-title">Q4. 한 단일 AWS 계정 내에서 여러 개발 프로젝트 팀이 인프라 리소스를 공유하고 있습니다. 재무팀은 AWS Cost Explorer에서 각 프로젝트별(Project) 월간 지출을 나누어 확인하고 싶어 합니다. 엔지니어링팀이 모든 AWS 리소스에 이미 <code>Project</code>라는 태그 키와 프로젝트명을 정확히 달아 두었음에도 불구하고, Cost Explorer의 태그 필터 목록에 <code>Project</code> 태그가 전혀 나타나지 않습니다. 어떤 필수 설정 단계가 누락되었습니까?</p>
   <div class="options">
-    <button class="opt">프로젝트마다 별도의 VPC를 새로 만들어 분리해야 한다</button>
-    <button class="opt">결제 콘솔에서 Project 비용 할당 태그를 활성화함</button>
-    <button class="opt">AWS Config 규칙으로 태그 준수 여부를 평가한다</button>
-    <button class="opt">Compute Optimizer에 옵트인해 태그를 모음</button>
+    <button class="opt">프로젝트별로 별도의 VPC를 생성하고 네트워크를 물리적으로 분리해야 한다</button>
+    <button class="opt">AWS 결제 및 비용 관리 콘솔에서 Project 태그를 비용 할당 태그로 활성화(Activate)해야 한다</button>
+    <button class="opt">AWS Config 규칙을 생성하여 태그 미준수 리소스를 먼저 평가해야 한다</button>
+    <button class="opt">AWS Compute Optimizer에 옵트인하여 태그 기반 지표 수집을 활성화해야 한다</button>
   </div>
-  <div class="feedback"><p>사용자 정의 태그도 AWS 생성 태그도 결제 및 비용 관리 콘솔에서 비용 할당 태그로 <strong>활성화</strong>해야 Cost Explorer와 비용 할당 보고서에 나타납니다(나타나기까지 최대 24시간). Config 규칙은 태그 준수 점검이지 비용 집계가 아닙니다.</p></div>
+  <div class="feedback"><p><strong>정답은 결제 및 비용 관리 콘솔에서 Project 태그를 비용 할당 태그로 활성화해야 한다는 것입니다.</strong><br>
+  AWS 리소스에 태그를 달아 두었더라도 결제 시스템이 이를 자동으로 인식하지 않습니다. <strong>AWS 결제 콘솔(Billing and Cost Management)의 '비용 할당 태그(Cost Allocation Tags)' 메뉴에서 해당 태그 키를 찾아 명시적으로 '활성화(Activate)'</strong>해 주어야만 비로소 Cost Explorer 및 CUR 보고서에서 해당 태그를 기준으로 비용을 그룹화하고 필터링할 수 있게 됩니다(활성화 후 적용까지 최대 24시간 소요).<br>
+  - <strong>오답 분석</strong>:
+  - 별도 VPC 분리: 비용 태그 분류와 무관하며 불필요한 인프라 복잡성을 초래합니다.
+  - AWS Config 규칙: 태그 정책 준수 여부를 검사하는 도구일 뿐 비용 집계와 직접 관련이 없습니다.
+  - Compute Optimizer 옵트인: 인스턴스 적정 사이징 분석 도구로 비용 태그 활성화와 무관합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1,3">
-  <p class="q-title">Q5. 회사가 과대 프로비저닝된 EC2 인스턴스와 연결되지 않은 탄력적 IP, 유휴 로드 밸런서를 찾아 비용을 줄이려 합니다. 어떤 서비스가 이런 점검이나 권장을 제공합니까? (두 개를 고르세요)</p>
+  <p class="q-title">Q5. 한 회사가 클라우드 인프라 전반의 낭비를 조사하여 비용을 절감하고자 합니다. 과도하게 큰 사양으로 프로비저닝된(Over-provisioned) EC2 인스턴스들과, 어떤 인스턴스에도 연결되어 있지 않은 유휴 탄력적 IP(EIP), 그리고 트래픽이 전혀 없는 미사용 로드 밸런서를 찾아내려 합니다. 이러한 점검과 최적화 권장안을 제공하는 두 가지 서비스는 무엇입니까? (두 개를 고르세요)</p>
   <div class="options">
-    <button class="opt">AWS Budgets에서 사용량 예산 알림</button>
-    <button class="opt">Compute Optimizer 권장 사항</button>
-    <button class="opt">AWS Organizations 통합 결제</button>
-    <button class="opt">Trusted Advisor의 비용 점검표</button>
-    <button class="opt">Amazon GuardDuty의 위협 탐지</button>
+    <button class="opt">AWS Budgets의 사용량 예산 초과 경보</button>
+    <button class="opt">AWS Compute Optimizer의 권장 사항</button>
+    <button class="opt">AWS Organizations의 통합 결제(Consolidated Billing)</button>
+    <button class="opt">AWS Trusted Advisor의 비용 최적화 점검 항목</button>
+    <button class="opt">Amazon GuardDuty의 위협 인텔리전스 탐지</button>
   </div>
-  <div class="feedback"><p>Compute Optimizer는 CloudWatch 지표로 EC2 적정 크기 권장과 유휴 리소스를 찾아 주고, Trusted Advisor 비용 점검에는 사용률 낮은 EC2, 연결 안 된 탄력적 IP, 유휴 로드 밸런서가 있습니다. Budgets는 임계값 알림, 통합 결제는 할인 합산, GuardDuty는 위협 탐지(0009)입니다.</p></div>
+  <div class="feedback"><p><strong>정답은 AWS Compute Optimizer(1)와 AWS Trusted Advisor(3)입니다.</strong><br>
+  1. <strong>AWS Compute Optimizer</strong>: CloudWatch의 CPU, 메모리 등의 실제 사용률 데이터를 머신러닝으로 분석하여 과대 프로비저닝된 EC2 인스턴스를 적정 크기(Rightsizing)로 축소하도록 구체적인 패밀리와 사양을 권장합니다.<br>
+  2. <strong>AWS Trusted Advisor</strong>: 비용 최적화 카테고리 검사를 통해 실행 중이지 않은 인스턴스에 연결되지 않은 탄력적 IP(EIP, 시간당 페널티 요금 부과), 트래픽이 없는 유휴 로드 밸런서, 저활용 EBS 볼륨 등을 식별하여 즉각적인 비용 회수 포인트를 알려줍니다.<br>
+  - <strong>오답 분석</strong>:
+  - AWS Budgets: 예산 임계값 초과 알림 도구이지 유휴 리소스 탐색 도구가 아닙니다.
+  - 통합 결제: 다중 계정의 결제를 합산하고 볼륨 할인을 공유하는 청구 기능입니다.
+  - GuardDuty: 악성 행위 및 보안 위협을 탐지하는 보안 모니터링 서비스입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q6. (복습 0010) 매일 밤 몇 시간 도는 이미지 변환 배치는 중간에 끊겨도 체크포인트에서 다시 시작할 수 있고, 완료 시각에 여유가 있습니다. 가장 비용 효율적인 구매 옵션은?</p>
+  <p class="q-title">Q6. (복습 0010) 매일 자정부터 새벽 사이에 수 시간 동안 실행되는 대규모 비디오 트랜스코딩 배치 작업이 있습니다. 이 작업은 주기적으로 진행 상태를 체크포인트로 저장하므로 실행 도중 인스턴스가 중단되더라도 언제든 중단된 지점부터 안전하게 재개할 수 있으며, 다음 날 업무 시작 전까지만 완료되면 됩니다. 가장 비용 효율적인 EC2 구매 옵션은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">3년 약정을 건 표준 예약 인스턴스(RI)</button>
-    <button class="opt">전용 호스트(Dedicated Hosts)</button>
+    <button class="opt">3년 약정의 표준 예약 인스턴스(Standard RI)</button>
+    <button class="opt">전용 호스트(Dedicated Hosts) 구매</button>
     <button class="opt">스팟 인스턴스(Spot Instances)</button>
-    <button class="opt">온디맨드(On-Demand) 인스턴스 사용</button>
+    <button class="opt">필요할 때마다 온디맨드(On-Demand) 인스턴스 실행</button>
   </div>
-  <div class="feedback"><p>중단 가능하고 시간이 유연한 배치는 Spot의 전형입니다. 여유 용량을 크게 할인된 가격에 쓰되, 용량이 필요해지면 2분 전 알림 후 중단될 수 있습니다. 매일 몇 시간만 도는 작업에 3년 예약은 낭비가 크고, 온디맨드는 할인이 없습니다.</p></div>
+  <div class="feedback"><p><strong>정답은 스팟 인스턴스(Spot Instances)입니다.</strong><br>
+  <strong>"작업 중단(Interruption)을 허용할 수 있음 + 체크포인트 재개 가능 + 완료 시간에 여유가 있음"</strong>은 스팟 인스턴스를 선택해야 하는 완벽한 교과서적 시나리오입니다. 스팟 인스턴스는 AWS의 여유 유휴 컴퓨팅 자원을 온디맨드 대비 최대 90%까지 저렴한 비용으로 활용할 수 있어 배치 작업에 최상의 비용 절감 효과를 제공합니다.<br>
+  - <strong>오답 분석</strong>:
+  - 3년 표준 RI: 하루 24시간 연중무휴 상시 가동되는 안정적 워크로드에 적합하며, 하루 몇 시간만 실행되는 배치 작업에 3년 약정을 거는 것은 막대한 비용 낭비입니다.
+  - 전용 호스트: 물리적 서버 독점 및 기존 라이선스(BYOL) 준수용으로 가장 고가의 옵션입니다.
+  - 온디맨드: 안정적이지만 할인이 전혀 적용되지 않아 비용 최적화 조건에 미달합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q7. (복습 0018) 규정상 감사 로그를 10년 보관해야 하지만, 실제로 읽는 일은 연 1회도 안 되며 필요하면 몇 시간 뒤에 받아도 됩니다. 가장 저렴한 스토리지 클래스는?</p>
+  <p class="q-title">Q7. (복습 0018) 한 금융 회사가 금융 규제 준수를 위해 회계 감사 로그 데이터를 10년간 장기 보관해야 합니다. 이 데이터는 연 1회 미만으로 극히 드물게 감사 시에만 조회되며, 데이터 열람이 필요할 경우 몇 시간의 복원 지연 시간(Retrieval time)이 허용됩니다. 10년 보관 비용을 가장 저렴하게 유지할 수 있는 S3 스토리지 클래스는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">S3 Glacier Deep Archive로 전환</button>
-    <button class="opt">S3 Intelligent-Tiering으로 저장</button>
-    <button class="opt">S3 Standard-IA 클래스로 옮겨서 보관함</button>
-    <button class="opt">S3 Express One Zone으로 옮겨 둔다</button>
+    <button class="opt">S3 Glacier Deep Archive</button>
+    <button class="opt">S3 Intelligent-Tiering</button>
+    <button class="opt">S3 Standard-Infrequent Access (Standard-IA)</button>
+    <button class="opt">S3 Express One Zone</button>
   </div>
-  <div class="feedback"><p>연 1회 미만 접근, 몇 시간 복원 허용, 장기 보관이면 Glacier Deep Archive입니다(최소 보관 180일은 10년 보관에 문제없음). Intelligent-Tiering은 접근 패턴을 <em>모를</em> 때 고르고, Standard-IA는 밀리초 접근이 필요한 드문 접근용입니다. Express One Zone은 초저지연용이라 정반대입니다.</p></div>
+  <div class="feedback"><p><strong>정답은 S3 Glacier Deep Archive입니다.</strong><br>
+  <strong>"연 1회 미만의 극히 드문 접근 + 수 시간의 복원 대기 허용 + 수년 이상의 장기 보관"</strong> 요구에는 S3 Glacier Deep Archive가 AWS 전체 스토리지 중 가장 저렴한 비용(GB당 월 $0.00099 수준)을 제공합니다. 최소 보관 기간 180일 조건도 10년 보관 요구에 완벽히 부합합니다.<br>
+  - <strong>오답 분석</strong>:
+  - S3 Intelligent-Tiering: 데이터의 접근 패턴을 알 수 없거나 자주 바뀔 때 유리하며, 장기 아카이빙 목적으로는 모니터링 비용 등으로 인해 Deep Archive보다 보관 단가가 높습니다.
+  - S3 Standard-IA: 월 1회 수준의 접근과 밀리초 단위 즉시 조회가 필요한 데이터용으로 보관 단가가 Deep Archive 대비 수십 배 높습니다.
+  - S3 Express One Zone: 초당 수십만 트랜잭션과 한 자릿수 밀리초 초저지연을 요하는 초고성능 티어로 가장 고가의 스토리지입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q8. (복습 0022) 출시 직후라 트래픽을 전혀 예측할 수 없고, 마케팅 이벤트 때마다 요청이 급증했다가 금방 줄어드는 새 앱이 DynamoDB를 씁니다. 용량 계획 부담 없이 쓴 만큼만 내려면?</p>
+  <p class="q-title">Q8. (복습 0022) 새롭게 출시된 모바일 앱의 백엔드 데이터베이스로 Amazon DynamoDB를 도입하려 합니다. 갓 출시된 서비스라 일일 트래픽 패턴을 전혀 예측할 수 없으며, 불규칙한 마케팅 프로모션에 따라 순간적으로 트래픽이 폭증했다가 다시 급감하는 특성을 보입니다. 복잡한 용량 계획(Capacity Planning) 없이 실제 사용한 읽기/쓰기 요청 건수에 대해서만 비용을 지불하고 싶습니다. 가장 적합한 DynamoDB 용량 모드는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">프로비저닝 모드에 고정 용량을 크게 설정</button>
-    <button class="opt">프로비저닝 모드에 예약 용량을 함께 구매</button>
-    <button class="opt">DAX를 앞에 두고 프로비저닝 모드 사용</button>
-    <button class="opt">온디맨드 모드로 요청당 과금을 받아들인다</button>
+    <button class="opt">프로비저닝 용량 모드를 선택하고 최대 예상치에 맞춰 RCU/WCU를 매우 크게 고정 설정한다</button>
+    <button class="opt">프로비저닝 용량 모드를 선택하고 1년 예약 용량(Reserved Capacity)을 미리 구매한다</button>
+    <button class="opt">DynamoDB 앞단에 DAX 클러스터를 배치하고 프로비저닝 모드를 유지한다</button>
+    <button class="opt">온디맨드(On-Demand) 용량 모드를 선택하여 요청당 과금 방식을 적용한다</button>
   </div>
-  <div class="feedback"><p>온디맨드 모드는 용량 계획 없이 요청당 과금되고, 예측 불가 트래픽에 맞으며 대부분 워크로드의 기본·권장 옵션입니다. 프로비저닝 모드는 사용 여부와 관계없이 설정한 용량에 시간당 과금되므로 꾸준하고 예측 가능한 트래픽에서 유리합니다. DAX는 읽기 캐시이지 용량 모드 문제의 답이 아닙니다.</p></div>
+  <div class="feedback"><p><strong>정답은 온디맨드(On-Demand) 용량 모드를 선택하는 것입니다.</strong><br>
+  DynamoDB의 <strong>온디맨드 모드</strong>는 용량 단위를 사전에 예측하거나 프로비저닝할 필요 없이, 인입되는 트래픽 워크로드에 맞춰 즉각 자동으로 확장되며 <strong>실제로 실행된 읽기/쓰기 요청 수에 비례해서만 과금</strong>됩니다. 예측할 수 없거나 급격한 스파이크가 발생하는 신규 서비스에 가장 이상적인 기본 모드입니다.<br>
+  - <strong>오답 분석</strong>:
+  - 프로비저닝 모드 대량 할당: 사용 여부와 상관없이 할당된 RCU/WCU에 대해 시간당 고정 요금이 계속 청구되므로 유휴 시간에 막대한 비용 낭비가 발생합니다.
+  - 예약 용량 구매: 트래픽을 예측할 수 없는 신규 서비스에는 장기 약정(1년/3년)이 맞지 않습니다.
+  - DAX 클러스터 배치: 읽기 성능을 극대화하는 인메모리 캐시일 뿐, 예측 불가한 트래픽에 대한 용량 모드 관리 해법이 아닙니다.</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) 데이터 전송 요금: 인터넷 인바운드·아웃바운드, AZ 간, 리전 간, AWS 오리진 → CloudFront는 각각? (2) NAT 비용을 줄이는 두 가지 방법과, 공유 NAT의 복원력 문제. (3) Cost Explorer, Budgets, CUR/Data Exports, Compute Optimizer, Trusted Advisor를 한 줄씩.</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
-  <button data-reveal>답 확인</button>
+  <p>교재를 보지 말고 머릿속에서 직접 떠올려 적어 보세요.<br>
+  (1) 데이터 전송 요금의 5대 규칙(인터넷 인바운드/아웃바운드, 동일 리전 AZ 간, 리전 간, AWS 오리진→CloudFront)은 각각 어떻게 과금되나요?<br>
+  (2) 프라이빗 서브넷의 NAT 게이트웨이 비용을 최적화하는 두 가지 방법과, 단일 공유 NAT 구성의 치명적 단점은 무엇인가요?<br>
+  (3) Cost Explorer, AWS Budgets, CUR 2.0(Data Exports), Compute Optimizer, Trusted Advisor의 핵심 차이점을 한 문장씩 정리해 보세요.</p>
+  <textarea placeholder="여기에 직접 적어 보며 개념을 정리해 보세요"></textarea>
+  <button data-reveal>정답 확인하기</button>
   <div class="answer">
-    <p>(1) 인터넷 → AWS 무료, AWS → 인터넷 과금, AZ 간 과금(양방향 계량, 일부 서비스 예외), 리전 간은 보내는 리전 아웃바운드에 과금, AWS 오리진 → CloudFront 무료(뷰어로 나가는 전송만 과금).</p>
-    <p>(2) AZ마다 NAT를 두고 같은 AZ로 라우팅(또는 리소스를 NAT와 같은 AZ에), AWS 서비스 트래픽은 VPC 엔드포인트로(S3·DynamoDB 게이트웨이 엔드포인트는 추가 요금 없음). 공유 NAT는 그 AZ가 다운되면 다른 AZ 리소스도 인터넷 접근을 잃음.</p>
-    <p>(3) Cost Explorer: 13개월 분석·18개월 예측·RI 권장. Budgets: 실제/예측 임계값 알림과 예산 작업. CUR 2.0/Data Exports: 가장 상세한 데이터를 S3로, Athena 조회. Compute Optimizer: CloudWatch 지표 기반 적정 크기·유휴 리소스 권장. Trusted Advisor: 비용·성능·보안 등 모범 사례 점검표.</p>
+    <p><strong>(1) 데이터 전송 5대 과금 규칙</strong>:<br>
+    - 인터넷 → AWS (인바운드): 100% 무료.<br>
+    - AWS → 인터넷 (아웃바운드): GB당 유료 과금.<br>
+    - 동일 리전 내 AZ 간 (Cross-AZ): 보내는 쪽과 받는 쪽 양방향 모두 GB당 유료 과금.<br>
+    - 리전 간 (Cross-Region): 데이터를 보내는 출발지 리전의 아웃바운드만 유료 과금 (도착지 인바운드는 무료).<br>
+    - AWS 오리진 → CloudFront: 100% 무료 (오직 CloudFront에서 사용자 뷰어로 나가는 아웃바운드만 과금).</p>
+    <p><strong>(2) NAT 비용 최적화 및 공유 NAT의 한계</strong>:<br>
+    - 최적화 방법 1: 고트래픽 환경에서는 각 AZ마다 NAT 게이트웨이를 두고 동일 AZ로 라우팅하여 AZ 간 전송 요금을 원천 차단.<br>
+    - 최적화 방법 2: S3 및 DynamoDB 트래픽은 비용이 완전 무료인 게이트웨이 VPC 엔드포인트로 우회시켜 NAT 처리 요금을 0원으로 절감.<br>
+    - 단일 공유 NAT의 문제: 다른 AZ 인스턴스들의 트래픽에 AZ 간 전송료가 이중 부과되며, 해당 NAT가 위치한 AZ 장애 시 모든 AZ의 아웃바운드 인터넷이 마비되는 단일 장애점(SPOF) 발생.</p>
+    <p><strong>(3) 비용 관리 도구 핵심 요약</strong>:<br>
+    - Cost Explorer: 과거 13개월 지출 분석, 미래 18개월 지출 예측 및 RI/SP 추천 시각화 도구.<br>
+    - AWS Budgets: 실제 또는 예측 지출이 임계값을 넘을 때 선제적 알림 발송 및 IAM/인스턴스 자동 제어(Budget Actions).<br>
+    - CUR 2.0 (Data Exports): 가장 상세한 원천 결제 데이터를 S3에 주기적으로 내보내어 Athena 및 QuickSight로 심층 분석.<br>
+    - Compute Optimizer: CloudWatch 메트릭 기반 머신러닝 분석으로 EC2/EBS/Lambda 등의 과대 프로비저닝을 찾아 적정 사양(Rightsizing) 권장.<br>
+    - Trusted Advisor: 미사용 EIP, 유휴 ELB 등 5대 기둥 모범 사례 체크리스트를 점검해 즉각적인 비용 낭비 요소를 진단.</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/cur/latest/userguide/cur-data-transfers-charges.html">"Understanding data transfer charges"</a>. AZ 간·리전 간·인터넷 전송이 청구서에 어떻게 찍히는지 짧게 정리돼 있습니다. NAT는 <a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-pricing.html">"Pricing for NAT gateways"</a>를 함께 보세요. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (무료)</strong>: 결제 및 비용 관리 콘솔에서 (1) 월 소액의 <strong>비용 예산</strong>을 만들고 예측 기준 알림을 내 이메일로 걸어 두세요. 학습 기간 내내 요금 사고를 막아 주는 안전망입니다. (2) Cost Explorer에서 "서비스" 기준으로 그룹화해 지난달 지출을 보고, 사용량 유형에 <code>DataTransfer</code>나 <code>NatGateway</code>가 있는지 확인해 보세요. 콘솔 사용은 무료이지만 Cost Explorer API는 요청마다 과금되니 콘솔만 쓰세요.</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>공식 1차 자료 추천 (필독, 약 10분 소요)</strong>: AWS 공식 문서의 <a href="https://docs.aws.amazon.com/cur/latest/userguide/cur-data-transfers-charges.html">"Understanding data transfer charges"</a>와 <a href="https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-pricing.html">"Pricing for NAT gateways"</a>를 꼭 읽어보세요. 청구서에서 Data Transfer 항목과 NAT Gateway 항목이 어떤 계산 방식으로 합산되는지 완벽히 이해할 수 있습니다. (한국어 번역 문서는 URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>를 추가하면 열람 가능합니다.)</p>
+<p><strong>안전한 무료 실습 가이드</strong>: AWS 결제 및 비용 관리 콘솔에 접속하여 (1) 월 \$5 또는 \$10 수준의 <strong>비용 예산(Cost Budget)</strong>을 생성하고, 예측 지출이 80%를 넘을 때 본인 이메일로 알림이 오도록 설정해 두세요. 향후 모든 학습과 실습 과정에서 예기치 않은 요금 폭탄을 막아 주는 든든한 안전장치가 됩니다. (2) Cost Explorer 메뉴로 들어가 '서비스(Service)'별 그룹화를 선택하고 지난달 지출 내역을 확인해 보세요. (콘솔 상의 Cost Explorer 사용은 무료입니다.)</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q6~Q8은 0010·0018·0022 복습이라, 틀렸다면 해당 레슨의 어느 부분이 흐려졌는지 함께 짚어 보겠습니다. 다음 레슨 0027은 전 도메인을 섞은 모의 문제이니, 약한 영역이 있으면 지금 말씀해 주세요.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>퀴즈 결과와 틀린 문항 번호, 그리고 학습 중 헷갈렸던 개념이 있다면 편하게 남겨주세요. Q1(NAT 배포 모델), Q2(S3 엔드포인트 우회), Q4(비용 할당 태그 활성화)는 실무와 시험 모두에서 가장 실수가 잦은 영역입니다. 이어지는 다음 레슨 0027은 전체 도메인을 망라하는 25문항 실전 모의 문제이므로, 부족하다고 느껴지는 파트가 있다면 언제든 질문해 주세요.</p>
 </div>
 
 <h3>출처</h3>

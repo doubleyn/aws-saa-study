@@ -11,74 +11,108 @@
 
 <p class="kicker">레슨 0025 · 도메인 3 고성능 아키텍처 (24%) · Task 3.4</p>
 <h1>엣지 두 형제:<br>CloudFront vs Global Accelerator</h1>
-<p class="lede">둘 다 "전 세계 사용자에게 빠르게"를 약속하고 둘 다 AWS 엣지와 글로벌 네트워크를 씁니다. 차이는 하나입니다. CloudFront는 <strong>HTTP 콘텐츠를 캐시</strong>하고, Global Accelerator는 <strong>TCP/UDP 패킷을 프록시</strong>합니다. 이 한 줄이 보기 넷 중 둘을 지워 줍니다.</p>
+<p class="lede">Amazon CloudFront와 AWS Global Accelerator는 둘 다 "전 세계에 흩어진 사용자들에게 지연 시간을 최소화하여 최상의 속도를 제공한다"는 목표를 공유하며, 전 세계 AWS 엣지 인프라와 글로벌 사설 전용 백본망을 활용합니다. 하지만 두 서비스의 핵심 동작 원리는 완전히 다릅니다. CloudFront는 <strong>HTTP/HTTPS 웹 콘텐츠를 엣지에 캐싱</strong>하여 배포하고, Global Accelerator는 <strong>고정 애니캐스트 IP를 통해 일반 TCP/UDP 패킷을 엣지에서 받아 사설 백본망으로 프록시 전송</strong>합니다. 이 명확한 차이점 하나만 이해해도 시험 문제의 오답 보기 절반을 단번에 지울 수 있습니다.</p>
 <div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/data-edge-cost.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
 
-<h2>왜 이것부터인가</h2>
-<p><strong>시험에서</strong>: Task 3.4가 엣지 네트워킹 서비스로 CloudFront와 Global Accelerator를 콕 집어 적고, Task 4.4는 CDN·엣지 캐싱의 전략적 필요와 Global Accelerator를 비용 관점에서 다시 묻습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03-domain3.html">[1]</a></sup><br>
-<strong>실무에서</strong>: 정적 사이트·API 앞에 CloudFront를 두는 것은 거의 기본값이고, 게임·VoIP·고정 IP 요구가 나오면 Global Accelerator를 검토합니다.</p>
+<h2>왜 CloudFront와 Global Accelerator를 배워야 할까요?</h2>
+<p><strong>시험 관점</strong>: SAA-C03 시험 가이드의 Task 3.4는 고성능 네트워크 아키텍처 설계를 다루며 CloudFront와 Global Accelerator의 차이와 사용 사례를 명시적으로 요구합니다. 또한 Task 4.4(비용 최적화)에서는 CDN 캐싱을 통한 데이터 전송 비용 절감 및 Global Accelerator의 네트워크 비용 효율성을 다각도로 평가합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/aws-certification/latest/solutions-architect-associate-03/solutions-architect-associate-03-domain3.html">[1]</a></sup><br>
+<strong>실무 관점</strong>: 웹 사이트나 API 서버 앞단에 CloudFront를 두는 것은 성능 개선뿐 아니라 DDoS 방어 및 오리진 보호를 위한 필수 표준 설계입니다. 반면 전 세계를 무대로 하는 온라인 게임, 음성 통화(VoIP), 사설 방화벽의 IP 허용 목록 연동, 혹은 빠른 멀티 리전 장애 조치(Failover)가 필요할 때는 Global Accelerator가 대체 불가능한 핵심 솔루션이 됩니다.</p>
 
 <h2>CloudFront: 가장 가까운 엣지에서 캐시로 응답</h2>
-<p>CloudFront는 엣지 로케이션이라는 전 세계 데이터 센터 네트워크로 콘텐츠를 전달합니다. 요청은 지연 시간이 가장 낮은 엣지로 라우팅되고, 거기에 콘텐츠가 있으면 즉시 응답(캐시 적중), 없으면 <strong>오리진</strong>에서 가져옵니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[2]</a></sup> 정적 콘텐츠뿐 아니라 동적 콘텐츠의 배포도 빠르게 합니다.</p>
+<p><strong>Amazon CloudFront</strong>는 전 세계 수백 곳의 엣지 로케이션(Edge Location)과 리전 엣지 캐시(Regional Edge Cache)로 구성된 AWS 글로벌 네트워크를 통해 웹 콘텐츠를 신속하게 전달하는 콘텐츠 전송 네트워크(CDN: Content Delivery Network) 서비스입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[2]</a></sup></p>
+<p>동작 원리는 직관적입니다. 사용자의 웹 요청은 DNS 라우팅을 통해 물리적으로 가장 가까운 CloudFront 엣지 로케이션으로 연결됩니다. 요청한 파일이 해당 엣지의 캐시에 존재하면 오리진 서버까지 갈 필요 없이 즉시 응답(캐시 적중, Cache Hit)합니다. 캐시에 없다면(캐시 미스, Cache Miss) AWS의 최적화된 내부 네트워크 경로를 타고 <strong>오리진(Origin)</strong> 서버에서 원본을 가져와 캐시에 저장한 뒤 사용자에게 전달합니다. 정적 파일(이미지, CSS, JS, 동영상)의 캐싱은 물론이고, 동적 웹 요청 역시 엣지에서 사용자 연결을 빠르게 맺고(TLS 핸드셰이크 가속) 오리진과의 지속 연결 풀(Keep-alive)을 재활용하므로 전체적인 통신 속도가 크게 향상됩니다.</p>
 
-<h3>오리진</h3>
-<p>S3 버킷, Application Load Balancer, Network Load Balancer, Lambda 함수 URL, API Gateway, EC2 같은 커스텀 HTTP 서버를 오리진으로 쓸 수 있습니다. <strong>오리진 그룹</strong>을 만들면 기본 오리진이 특정 HTTP 오류를 돌려줄 때 보조 오리진으로 자동 전환(오리진 장애 조치)합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistS3AndCustomOrigins.html">[3]</a></sup></p>
-
-<h3>S3 오리진 잠그기: OAC</h3>
-<p>사용자가 S3 URL로 우회하지 못하고 <strong>CloudFront를 통해서만</strong> 받게 하려면 <strong>오리진 액세스 제어(OAC)</strong>를 씁니다. AWS는 레거시 OAI 대신 OAC를 권장합니다. OAC는 모든 리전, <strong>SSE-KMS</strong> 암호화 객체, PUT/DELETE 같은 동적 요청을 지원하기 때문입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[4]</a></sup></p>
-<pre><code>// S3 버킷 정책: 이 배포(distribution)를 통한 요청만 허용
-{ "Effect": "Allow",
-  "Principal": { "Service": "cloudfront.amazonaws.com" },
-  "Action": "s3:GetObject",
-  "Resource": "arn:aws:s3:::amzn-s3-demo-bucket/*",
-  "Condition": { "StringEquals": {
-    "AWS:SourceArn": "arn:aws:cloudfront::111122223333:distribution/EDFDVBD6EXAMPLE" } } }</code></pre>
-<p>0002의 리소스 기반 정책이 그대로 나옵니다. Principal은 CloudFront <em>서비스</em>이고, Condition이 "내 배포만"으로 좁힙니다. SSE-KMS 객체라면 KMS 키 정책에도 CloudFront를 허용해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[4]</a></sup> 주의: S3 <strong>웹사이트 엔드포인트</strong>로 설정한 버킷은 커스텀 오리진으로 다뤄져 OAC를 쓸 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[4]</a></sup></p>
-<p><strong>ALB/EC2 오리진</strong>을 인터넷에 노출하고 싶지 않다면 <strong>VPC 오리진</strong>을 씁니다. 프라이빗 서브넷의 ALB, NLB, EC2를 오리진으로 두어 CloudFront를 단일 진입점으로 만듭니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html">[5]</a></sup></p>
-
-<h3>얼마나 오래 캐시하나: TTL</h3>
+<h3>오리진(Origin)과 오리진 그룹(Origin Group)</h3>
+<p>CloudFront가 콘텐츠를 가져오는 원본 서버를 오리진(Origin)이라고 부릅니다. 지원되는 오리진은 다음과 같습니다:</p>
 <ul>
-  <li>캐시 정책을 쓰지 않으면 기본 TTL은 <strong>24시간</strong>입니다. 캐시 동작의 최소·최대·기본 TTL이나, 오리진이 보내는 <code>Cache-Control: max-age</code>(또는 <code>s-maxage</code>, <code>Expires</code>)로 조절합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html">[6]</a></sup></li>
-  <li>TTL이 길면 캐시 적중이 늘고 <strong>오리진 부하가 줄어</strong> 성능이 좋아지고, 짧으면 동적 콘텐츠에 맞습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html">[6]</a></sup></li>
-  <li>만료 전에 지우려면 <strong>무효화(invalidation)</strong>, 또는 파일 이름에 버전을 붙이는 방법이 있습니다. 자주 바뀌는 파일은 버전 이름이 권장되고 무효화 비용도 들지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html">[7]</a></sup></li>
+  <li><strong>Amazon S3 버킷</strong>: 정적 웹 호스팅 및 파일 저장소</li>
+  <li><strong>Application Load Balancer (ALB) 및 Network Load Balancer (NLB)</strong>: 동적 웹 애플리케이션 진입점</li>
+  <li><strong>Amazon EC2 인스턴스</strong>: 자체 웹 서버</li>
+  <li><strong>AWS Lambda 함수 URL 및 Amazon API Gateway</strong>: 서버리스 REST/HTTP API 백엔드</li>
+  <li><strong>온프레미스 웹 서버</strong>: 외부 퍼블릭 HTTP/HTTPS 엔드포인트</li>
+</ul>
+<p>특히 고가용성이 필수적인 시스템에서는 <strong>오리진 그룹(Origin Group)</strong>을 구성할 수 있습니다. 기본 오리진(Primary)과 보조 오리진(Secondary)을 묶어 두고, 기본 오리진이 특정 HTTP 오류 코드(500, 502, 503, 504)를 반환하거나 연결 시간 초과가 발생하면 CloudFront가 사용자에게 에러를 보여주는 대신 보조 오리진으로 즉각 요청을 재시도(자동 오리진 장애 조치)합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistS3AndCustomOrigins.html">[3]</a></sup></p>
+
+<h3>S3 오리진 완벽 격리: OAC (Origin Access Control)</h3>
+<p>정적 웹사이트나 미디어 자산을 S3에 저장하고 CloudFront로 서비스할 때, 사용자가 S3의 직접 URL(<code>bucket.s3.amazonaws.com/...</code>)로 우회 접근하지 못하게 막고 <strong>오직 CloudFront 배포를 통해서만 데이터를 가져가도록</strong> 강제해야 합니다. 이를 구현하는 AWS의 최신 표준 기술이 바로 <strong>오리진 액세스 제어(OAC: Origin Access Control)</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[4]</a></sup></p>
+<p>과거에 사용되던 OAI(Origin Access Identity)는 이제 레거시 기술로 분류됩니다. OAC는 전 세계 모든 AWS 리전 지원, <strong>AWS KMS(SSE-KMS)로 암호화된 객체 완벽 지원</strong>, 그리고 PUT/DELETE 같은 동적 HTTP 메서드 지원 등 모든 면에서 우수하므로 시험과 실무 모두 OAC를 선택해야 합니다.</p>
+<pre><code>// S3 버킷 정책: 오직 특정 CloudFront 배포를 통한 s3:GetObject 요청만 허용
+{
+  "Version": "2012-10-17",
+  "Statement": {
+    "Sid": "AllowCloudFrontServicePrincipalReadOnly",
+    "Effect": "Allow",
+    "Principal": {
+      "Service": "cloudfront.amazonaws.com"
+    },
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::my-secure-bucket/*",
+    "Condition": {
+      "StringEquals": {
+        "AWS:SourceArn": "arn:aws:cloudfront::123456789012:distribution/EDFDVBD6EXAMPLE"
+      }
+    }
+  }
+}</code></pre>
+<p>원리는 간단합니다. S3 버킷 정책에서 <code>Principal</code>로 CloudFront 서비스 주체(<code>cloudfront.amazonaws.com</code>)를 지정하고, <code>Condition</code> 절의 <code>AWS:SourceArn</code>으로 내 계정의 특정 CloudFront 배포 ARN을 지정하는 것입니다. 만약 S3 객체가 고객 관리형 KMS 키(SSE-KMS)로 암호화되어 있다면, 해당 KMS 키 정책(Key Policy)에도 CloudFront 서비스 주체에 대한 <code>kms:Decrypt</code> 권한이 추가되어야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[4]</a></sup><br>
+<strong>주의할 점</strong>: S3 버킷의 "정적 웹 사이트 호스팅(Static website hosting)" 기능을 활성화하여 나오는 웹사이트 엔드포인트는 CloudFront에서 일반 커스텀 HTTP 오리진으로 취급되므로 OAC를 적용할 수 없습니다. OAC를 적용하려면 반드시 S3의 표준 REST API 엔드포인트를 오리진으로 지정해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">[4]</a></sup></p>
+
+<h3>VPC 오리진: 프라이빗 ALB/EC2 오리진 보호</h3>
+<p>만약 CloudFront의 오리진이 프라이빗 서브넷에 위치한 내부 Application Load Balancer(ALB)나 EC2 인스턴스라면 어떻게 해야 할까요? 과거에는 ALB를 퍼블릭에 노출하고 사용자 정의 비밀 헤더를 검증해야 했지만, 이제는 <strong>CloudFront VPC 오리진(VPC Origins)</strong> 기능을 사용하여 프라이빗 서브넷에 있는 내부 ALB, NLB, EC2로 직접 안전한 트래픽을 전달할 수 있습니다. 인터넷에 애플리케이션 진입점을 전혀 노출하지 않고 CloudFront만을 단일 보안 관문으로 운영할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html">[5]</a></sup></p>
+
+<h3>캐시 유효 기간(TTL)과 무효화(Invalidation)</h3>
+<ul>
+  <li><strong>TTL (Time To Live)</strong>: 객체가 엣지 캐시에 머무는 유효 기간입니다. 캐시 정책(Cache Policy)을 명시하지 않을 경우 기본 TTL은 <strong>24시간</strong>입니다. 최소(Min), 최대(Max), 기본(Default) TTL을 설정하거나, 오리진 웹 서버가 응답 헤더로 보내는 <code>Cache-Control: max-age=...</code> (또는 <code>s-maxage</code>, <code>Expires</code>)를 기준으로 동작합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html">[6]</a></sup></li>
+  <li><strong>오리진 부하 절감</strong>: 자주 변경되지 않는 정적 파일에 긴 TTL(예: 30일)을 지정하면 엣지 캐시 적중률이 극대화되어 오리진 서버의 CPU 및 네트워크 부하를 거의 제로에 가깝게 줄일 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html">[6]</a></sup></li>
+  <li><strong>캐시 갱신 전략</strong>: 파일이 변경되었을 때 엣지의 캐시를 갱신하는 방법은 두 가지입니다.
+    <ol>
+      <li><strong>버전이 포함된 파일명 사용 (권장, Best Practice)</strong>: <code>main.v2.css</code>, <code>logo_20261117.png</code>처럼 파일명 자체에 버전을 부여하는 방식입니다. 배포 즉시 새로운 파일로 인식되므로 전 세계 엣지에서 즉시 새 파일이 서비스되며, 캐시 갱신 비용이 전혀 들지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html">[7]</a></sup></li>
+      <li><strong>캐시 무효화 (Cache Invalidation)</strong>: 동일한 파일명을 유지하면서 강제로 엣지 캐시를 비우려면 무효화 요청(예: <code>/images/*</code>, <code>/index.html</code>)을 생성합니다. 매월 첫 1,000개 경로는 무료이지만 이후 건당 비용이 발생하므로 빈번한 변경에는 버전화된 파일명이 훨씬 유리합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html">[7]</a></sup></li>
+    </ol>
+  </li>
 </ul>
 
-<h3>누가 볼 수 있나: 서명된 URL/쿠키, 지리적 제한</h3>
+<h3>접근 제어와 보안: 서명된 URL/쿠키, 지리적 제한</h3>
 <table>
-<tr><th>요구</th><th>도구</th></tr>
-<tr><td>파일 <strong>하나</strong>(예: 설치 파일 다운로드), 쿠키를 지원하지 않는 클라이언트</td><td><strong>서명된 URL</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-choosing-signed-urls-cookies.html">[8]</a></sup></td></tr>
-<tr><td>제한된 파일 <strong>여러 개</strong>(HLS 영상의 모든 조각, 회원 전용 영역), 지금 URL을 바꾸고 싶지 않음</td><td><strong>서명된 쿠키</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-choosing-signed-urls-cookies.html">[8]</a></sup></td></tr>
-<tr><td><strong>국가 단위</strong>로 배포 전체를 허용/차단</td><td><strong>지리적 제한</strong>(허용 목록/차단 목록). 차단되면 HTTP 403. 국가보다 세밀하거나 일부 파일만이면 서드파티 위치 서비스<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/georestrictions.html">[9]</a></sup></td></tr>
+<tr><th>요구 사항</th><th>권장 솔루션 및 동작 방식</th></tr>
+<tr><td>단일 개별 파일(예: 설치 파일 다운로드, 특정 문서 열람)에 대한 임시 권한 부여, 또는 쿠키를 지원하지 않는 모바일 클라이언트</td><td><strong>CloudFront 서명된 URL (Signed URL)</strong>: 만료 시간, 허용 IP 등의 조건이 암호화된 URL 파라미터로 포함되며, 지정된 시간이 지나면 링크가 자동 만료됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-choosing-signed-urls-cookies.html">[8]</a></sup></td></tr>
+<tr><td>여러 개의 제한된 파일(예: 유료 회원 전용 강의 페이지의 수백 개 HLS 영상 세그먼트 파일들), 또는 기존 애플리케이션의 URL 구조를 전혀 바꾸고 싶지 않은 경우</td><td><strong>CloudFront 서명된 쿠키 (Signed Cookie)</strong>: 클라이언트 브라우저에 서명된 세션 쿠키를 한 번 발급하면, 사용자는 URL을 변경하지 않고도 권한이 필요한 여러 미디어 파일이나 웹 페이지를 자유롭게 요청할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-choosing-signed-urls-cookies.html">[8]</a></sup></td></tr>
+<tr><td>저작권 계약이나 규제로 인해 특정 국가에서의 접속을 배포 전체 수준에서 원천 차단하거나 특정 국가만 허용하려는 경우</td><td><strong>CloudFront 지리적 제한 (Geographic Restrictions)</strong>: 전 세계 엣지에서 사용자의 접속 IP를 기반으로 국가 단위 허용 목록(Allowlist) 또는 차단 목록(Blocklist)을 구성합니다. 차단된 국가의 사용자는 오리진에 도달하기 전 엣지에서 즉시 HTTP 403 Forbidden 응답을 받습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/georestrictions.html">[9]</a></sup></td></tr>
 </table>
 
-<h3>엣지에서 코드 실행 (포인터만)</h3>
-<p><strong>CloudFront Functions</strong>: 1밀리초 미만의 가벼운 JavaScript. 헤더 조작, URL 리다이렉트·재작성, 캐시 키 정규화, 토큰 검증. 뷰어 요청/응답 이벤트만. <strong>Lambda@Edge</strong>: Node.js·Python, 더 긴 실행, 네트워크·파일 시스템·요청 본문 접근, 오리진 요청/응답 이벤트까지.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-functions-choosing.html">[10]</a></sup> 시험 감각: "간단한 헤더/URL 처리, 초대량" → CloudFront Functions, "외부 서비스 호출, 본문 처리" → Lambda@Edge.</p>
-
-<h2>Global Accelerator: 고정 애니캐스트 IP + AWS 백본</h2>
-<p>Global Accelerator는 기본으로 <strong>정적 IPv4 주소 두 개</strong>(듀얼 스택이면 IPv4 2개 + IPv6 2개)를 주고, 이 주소는 AWS 엣지 네트워크에서 <strong>애니캐스트</strong>됩니다. 표준 가속기는 트래픽을 AWS 글로벌 네트워크로 실어 상태, 클라이언트 위치, 설정한 정책에 따라 최적의 리전 엔드포인트로 보냅니다. 엔드포인트는 <strong>NLB, ALB, EC2 인스턴스, 탄력적 IP</strong>이고 여러 리전에 둘 수 있습니다. 상태나 설정 변화에 즉시 반응해 정상 엔드포인트로만 보냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/what-is-global-accelerator.html">[11]</a></sup></p>
+<h3>엣지 컴퓨팅: CloudFront Functions vs Lambda@Edge</h3>
+<p>CloudFront 엣지에서 가벼운 로직을 서버 없이 실행할 수 있는 두 가지 도구가 있습니다:</p>
 <ul>
-  <li><strong>TCP/UDP</strong> 애플리케이션 전반을 엣지에서 패킷을 프록시하는 방식으로 가속합니다. CloudFront는 캐시 가능한 콘텐츠와 동적 콘텐츠 쪽입니다.<sup class="cite"><a href="https://aws.amazon.com/global-accelerator/faqs/">[12]</a></sup></li>
-  <li><strong>리전 장애 조치</strong>: 기본 리전 엔드포인트가 실패하면 다음으로 가까운 가용 리전으로 즉시 재라우팅합니다. <sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">[13]</a></sup> 비정상 엔드포인트는 1분 이내에 감지해 제외합니다. 클라이언트와 리졸버가 DNS 응답을 오래 캐시할 수 있다는 점과 대비되는 것이, DNS 기반 장애 조치(Route 53, 0016) 대신 Global Accelerator를 고르는 이유입니다.<sup class="cite"><a href="https://aws.amazon.com/global-accelerator/faqs/">[12]</a></sup></li>
-  <li><strong>고정 IP 허용 목록</strong>: 클라이언트·방화벽에 IP 두 개만 한 번 등록하면, 뒤에서 엔드포인트를 추가·제거하거나 블루/그린 배포를 해도 IP가 바뀌지 않습니다. 진입점은 기본으로 AWS Shield의 DDoS 보호를 받습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">[13]</a></sup></li>
-  <li><strong>사용 사례</strong>: 게임, 미디어, 모바일, 광고 기술, 금융 같은 지연 민감 앱. 커스텀 라우팅 가속기는 사용자를 특정 EC2 인스턴스·포트에 매핑해야 하는 멀티플레이 게임, VoIP용입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">[13]</a></sup></li>
+  <li><strong>CloudFront Functions</strong>: 전 세계 600개 이상의 모든 엣지 로케이션에서 1밀리초 미만의 초고속으로 실행되는 경량 JavaScript 런타임입니다. 초당 수백만 건의 대규모 요청도 매우 저렴하게 처리할 수 있습니다. 뷰어 요청(Viewer Request) 및 뷰어 응답(Viewer Response) 이벤트에서만 동작하며, 외부 네트워크 호출이나 요청 본문(Body) 접근은 불가능합니다. <em>HTTP 헤더 조작, URL 리다이렉트 및 재작성(Rewrite), 캐시 키 정규화, 간단한 JWT 토큰 검증</em>에 최적화되어 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-functions-choosing.html">[10]</a></sup></li>
+  <li><strong>Lambda@Edge</strong>: 리전 엣지 캐시에서 실행되는 정규 Node.js 및 Python 런타임입니다. 최대 수초 동안 복잡한 로직을 수행할 수 있으며, 외부 API나 서드파티 데이터베이스 네트워크 통신, 파일 시스템 접근, HTTP 요청 본문(Body) 조작이 가능합니다. 뷰어 요청/응답뿐 아니라 오리진 요청/응답(Origin Request/Response) 이벤트에서도 실행됩니다. <em>복잡한 인증 로직, 서버 측 렌더링, 외부 인증 서비스 연동</em> 등에 사용됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-functions-choosing.html">[10]</a></sup></li>
 </ul>
 
-<h2>언제 무엇을</h2>
+<h2>Global Accelerator: 고정 애니캐스트 IP + AWS 백본망</h2>
+<p><strong>AWS Global Accelerator</strong>는 전 세계 사용자를 대상으로 로컬 및 글로벌 애플리케이션의 가용성과 성능을 극대화해 주는 고성능 네트워크 서비스입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/what-is-global-accelerator.html">[11]</a></sup></p>
+<p>Global Accelerator를 생성하면 인터넷 진입점으로 <strong>두 개의 고정(정적) Anycast IPv4 주소</strong>가 부여됩니다. 전 세계 사용자가 이 고정 IP로 접속하면, 공용 인터넷망을 타고 길게 돌아가는 대신 물리적으로 가장 가까운 AWS 엣지 로케이션을 통해 즉시 AWS 사설 글로벌 백본망에 진입합니다. 그리고 혼잡이 없고 모니터링되는 초고속 AWS 전용망을 거쳐 대상 리전의 엔드포인트(ALB, NLB, EC2, 탄력적 IP)로 직접 패킷이 전송됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/what-is-global-accelerator.html">[11]</a></sup></p>
+<ul>
+  <li><strong>TCP/UDP 전 프로토콜 지원</strong>: CloudFront가 HTTP/HTTPS 캐싱 중심이라면, Global Accelerator는 <strong>일반 TCP 및 UDP 패킷 전체를 엣지에서 가속</strong>합니다. 온라인 게임, 음성 및 화상 통화(VoIP), IoT(MQTT), 금융 거래 등 지연 시간에 극도로 민감한 비 HTTP 애플리케이션에 이상적입니다.<sup class="cite"><a href="https://aws.amazon.com/global-accelerator/faqs/">[12]</a></sup></li>
+  <li><strong>DNS 캐싱 없는 즉각적인 리전 장애 조치(Instant Failover)</strong>: 글로벌 액셀러레이터는 백엔드 엔드포인트들의 상태(Health Check)를 지속적으로 감시합니다. 주 리전에 장애가 발생하면 <strong>1분 이내에 트래픽을 다음으로 가까운 정상 리전으로 자동 전환</strong>합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">[13]</a></sup> Amazon Route 53의 DNS 기반 장애 조치는 클라이언트나 ISP의 DNS 리졸버가 캐시(TTL)를 만료시키기 전까지 장애 리전으로 계속 요청을 보내는 문제가 있지만, Global Accelerator는 IP 자체가 고정되어 있고 AWS 내부 네트워크 레벨에서 라우팅을 즉각 전환하므로 DNS 캐싱 지연 문제가 원천적으로 발생하지 않습니다.<sup class="cite"><a href="https://aws.amazon.com/global-accelerator/faqs/">[12]</a></sup></li>
+  <li><strong>방화벽 허용 목록용 불변의 고정 IP</strong>: 고객사 기업 방화벽이나 클라이언트 보안 정책상 도메인 이름이 아닌 "고정 IP 주소 허용 목록(Allowlist)"을 요구하는 B2B 엔터프라이즈 환경에 완벽합니다. 백엔드에서 서버를 교체하거나 블루/그린 배포를 수행하거나 리전을 추가하더라도, 고객이 바라보는 2개의 애니캐스트 IP 주소는 절대 바뀌지 않습니다. 또한 진입점에는 AWS Shield Standard가 기본 적용되어 자동 DDoS 보호를 제공합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">[13]</a></sup></li>
+  <li><strong>사용자 지정 라우팅(Custom Routing)</strong>: 특정 사용자를 특정 EC2 인스턴스의 특정 포트(예: 배틀로얄 게임 세션 룸, 실시간 음성 채널)로 결정론적으로 매핑해야 하는 특수 워크로드를 지원합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">[13]</a></sup></li>
+</ul>
+
+<h2>한눈에 비교하기: 언제 무엇을 선택해야 할까요?</h2>
 <figure>
 <svg viewBox="0 0 580 210" role="img" aria-label="CloudFront는 엣지에서 캐시로 응답하고 미스 시에만 오리진으로 가며, Global Accelerator는 고정 애니캐스트 IP로 받아 AWS 백본으로 리전 엔드포인트까지 패킷을 전달" style="width:100%;height:auto;font-family:var(--sans)">
   <defs><marker id="ah25" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
-  <text x="10" y="20" font-size="12" fill="var(--accent)">CloudFront (HTTP/HTTPS, 캐시)</text>
+  <text x="10" y="20" font-size="12" fill="var(--accent)">CloudFront (HTTP/HTTPS, 엣지 캐싱)</text>
   <rect x="10" y="32" width="70" height="40" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="45" y="57" text-anchor="middle" font-size="12" fill="var(--fg)">사용자</text>
   <rect x="140" y="28" width="140" height="48" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
   <text x="210" y="48" text-anchor="middle" font-size="12" fill="var(--fg)">엣지 로케이션</text>
-  <text x="210" y="65" text-anchor="middle" font-size="10" fill="var(--muted)">적중 → 여기서 바로 응답</text>
+  <text x="210" y="65" text-anchor="middle" font-size="10" fill="var(--muted)">캐시 적중 → 즉시 응답</text>
   <rect x="400" y="32" width="170" height="40" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="485" y="57" text-anchor="middle" font-size="11" fill="var(--fg)">오리진 (S3 / ALB / …)</text>
   <line x1="80" y1="52" x2="136" y2="52" stroke="var(--muted)" marker-end="url(#ah25)"/>
   <line x1="280" y1="52" x2="396" y2="52" stroke="var(--muted)" stroke-dasharray="4 3" marker-end="url(#ah25)"/>
-  <text x="338" y="44" text-anchor="middle" font-size="10" fill="var(--muted)">미스일 때만</text>
-  <text x="10" y="115" font-size="12" fill="var(--accent)">Global Accelerator (TCP/UDP, 캐시 없음)</text>
+  <text x="338" y="44" text-anchor="middle" font-size="10" fill="var(--muted)">캐시 미스 시에만</text>
+  <text x="10" y="115" font-size="12" fill="var(--accent)">Global Accelerator (TCP/UDP, 전용 백본 프록시)</text>
   <rect x="10" y="127" width="70" height="40" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="45" y="152" text-anchor="middle" font-size="12" fill="var(--fg)">사용자</text>
   <rect x="140" y="123" width="140" height="48" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/>
@@ -91,136 +125,189 @@
   <line x1="80" y1="147" x2="136" y2="147" stroke="var(--muted)" marker-end="url(#ah25)"/>
   <line x1="280" y1="140" x2="396" y2="130" stroke="var(--muted)" marker-end="url(#ah25)"/>
   <line x1="280" y1="155" x2="396" y2="170" stroke="var(--muted)" stroke-dasharray="4 3" marker-end="url(#ah25)"/>
-  <text x="338" y="200" text-anchor="middle" font-size="10" fill="var(--muted)">AWS 글로벌 네트워크로 전달</text>
+  <text x="338" y="200" text-anchor="middle" font-size="10" fill="var(--muted)">AWS 초고속 전용 사설망으로 전달</text>
 </svg>
 </figure>
 <table>
-<tr><th>요구 사항 신호</th><th>CloudFront</th><th>Global Accelerator</th></tr>
-<tr><td>프로토콜</td><td>HTTP/HTTPS 웹 콘텐츠</td><td><strong>TCP/UDP</strong> 전반 (게임, VoIP, IoT, MQTT 등 비 HTTP 포함)</td></tr>
-<tr><td>엣지 캐싱</td><td><strong>예</strong>. 오리진 부하·전송량 감소</td><td>아니요. 패킷 프록시</td></tr>
-<tr><td>진입점</td><td>도메인 이름(<code>d111111abcdef8.cloudfront.net</code> 또는 대체 도메인)</td><td><strong>고정 애니캐스트 IP</strong> (허용 목록에 유리)</td></tr>
-<tr><td>장애 대응</td><td>오리진 그룹 장애 조치</td><td>리전 엔드포인트 간 즉시 장애 조치</td></tr>
-<tr><td>콘텐츠 보호</td><td>OAC, 서명된 URL/쿠키, 지리적 제한, WAF</td><td>Shield 기본 보호, 원본을 고정 진입점 뒤에 숨김</td></tr>
+<tr><th>비교 항목</th><th>Amazon CloudFront</th><th>AWS Global Accelerator</th></tr>
+<tr><td>지원 프로토콜</td><td><strong>HTTP / HTTPS</strong> 웹 트래픽 중심</td><td><strong>TCP 및 UDP</strong> 전체 (게임, 음성 통화, IoT, MQTT, HTTP 등)</td></tr>
+<tr><td>엣지 캐싱 기능</td><td><strong>지원함 (핵심 기능)</strong>. 정적 자산을 엣지에 저장해 오리진 부하 및 전송 비용 대폭 절감</td><td><strong>지원하지 않음</strong>. 캐시 없이 패킷을 AWS 사설 전용망을 통해 대상 리전으로 직접 중계(프록시)</td></tr>
+<tr><td>클라이언트 진입점</td><td>CloudFront 도메인 이름 (예: <code>d111.cloudfront.net</code> 또는 CNAME 별칭)</td><td><strong>2개의 불변 고정 Anycast IPv4 주소</strong> (기업 방화벽 허용 목록에 최적)</td></tr>
+<tr><td>다중 리전 장애 대응</td><td>오리진 그룹(Origin Group) 장애 조치 (5xx 에러 기준)</td><td><strong>AWS 내부 레벨의 즉각적인 리전 간 페일오버</strong> (DNS 캐싱 지연 없음)</td></tr>
+<tr><td>보안 및 접근 제어</td><td>OAC, 서명된 URL/쿠키, 국가별 지리적 제한, AWS WAF 연동</td><td>AWS Shield DDoS 기본 보호, 백엔드 IP 은폐 및 사설화</td></tr>
 </table>
 
 <div class="callout">
-<p class="label">시험 단골: 키워드 → 정답</p>
-<p><strong>정적 콘텐츠·이미지·영상, 전 세계, 오리진 부하 감소</strong> → CloudFront · <strong>S3를 CloudFront로만</strong> → OAC + 버킷 정책 · <strong>유료 회원만 다운로드</strong> → 서명된 URL(1개)/쿠키(여러 개) · <strong>특정 국가 차단</strong> → 지리적 제한 · <strong>UDP, 게임, VoIP, 비 HTTP</strong> → Global Accelerator · <strong>고정 IP 두 개, 방화벽 허용 목록</strong> → Global Accelerator · <strong>멀티 리전, DNS 캐시 없이 빠른 장애 조치</strong> → Global Accelerator</p>
-<p>비용 덧붙임: S3, ELB, API Gateway 같은 AWS 오리진에서 CloudFront로 가는 전송은 무료이고, CloudFront에서 뷰어로 나가는 전송에만 과금됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[2]</a></sup> 자주 접근되는 객체라면 S3에서 직접 내려보내는 것보다 CloudFront가 더 비용 효율적일 수 있다고 문서가 설명합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistS3AndCustomOrigins.html">[3]</a></sup> 0026에서 이어집니다.</p>
+<p class="label">시험에 자주 나오는 핵심 패턴: 키워드 → 정답 공식</p>
+<p><strong>정적 콘텐츠(이미지, CSS, JS, 비디오), 전 세계 배포, 오리진 부하 경감</strong> → CloudFront · <strong>S3를 오직 CloudFront로만 열고 직접 접근 차단, KMS 암호화</strong> → OAC(Origin Access Control) + S3 버킷 정책 · <strong>유료 회원 전용 다운로드(파일 1개)</strong> → CloudFront 서명된 URL · <strong>유료 회원 전용 동영상 스트리밍(HLS 세그먼트 다수, URL 유지)</strong> → CloudFront 서명된 쿠키 · <strong>특정 국가 사용자 접속 원천 차단</strong> → CloudFront 지리적 제한(Geographic Restriction) · <strong>UDP 통신, 실시간 멀티플레이 게임, VoIP 음성, 비 HTTP 통신</strong> → Global Accelerator · <strong>기업 고객 방화벽에 등록할 고정 IP 2개 필요</strong> → Global Accelerator · <strong>DNS 캐싱 문제(TTL) 없는 초고속 멀티 리전 자동 장애 조치</strong> → Global Accelerator</p>
+<p><strong>비용 팁</strong>: AWS 오리진(S3 버킷, ALB, API Gateway 등)에서 CloudFront로 이동하는 데이터 전송 요금은 <strong>100% 무료(0달러)</strong>입니다. 오직 CloudFront 엣지에서 사용자(뷰어)로 나가는 아웃바운드 트래픽에 대해서만 과금되며, 대용량 트래픽의 경우 S3에서 인터넷으로 직접 데이터를 쏘는 것보다 CloudFront를 거치는 것이 데이터 전송 단가 면에서 훨씬 경제적입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[2]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistS3AndCustomOrigins.html">[3]</a></sup></p>
 </div>
 
 <h2>연습</h2>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q1. 전 세계 사용자가 접속하는 멀티플레이어 게임이 UDP로 통신합니다. 지연과 지터를 줄이고, 리전 장애 시 다른 리전으로 빠르게 넘겨야 합니다. 가장 적합한 서비스는?</p>
+  <p class="q-title">Q1. 전 세계 사용자가 접속하는 글로벌 실시간 멀티플레이어 액션 게임 서버가 UDP 프로토콜을 사용해 통신하고 있습니다. 지연 시간과 네트워크 지터를 최소화해야 하며, 주 리전의 인프라 장애 발생 시 수초~수분 이내에 대기 리전으로 트래픽을 즉각 안전하게 넘겨야 합니다. 가장 적합한 서비스는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">CloudFront와 Lambda@Edge의 조합</button>
-    <button class="opt">AWS Global Accelerator의 가속기</button>
-    <button class="opt">Route 53 지연 시간 기반 라우팅 정책 사용</button>
-    <button class="opt">S3 Transfer Acceleration 사용</button>
+    <button class="opt">Amazon CloudFront와 Lambda@Edge 조합</button>
+    <button class="opt">AWS Global Accelerator 표준 가속기</button>
+    <button class="opt">Amazon Route 53 지연 시간 기반 라우팅 정책</button>
+    <button class="opt">Amazon S3 Transfer Acceleration 활성화</button>
   </div>
-  <div class="feedback"><p>UDP는 HTTP 캐시 대상이 아니므로 CloudFront가 아닙니다. Global Accelerator는 TCP/UDP 트래픽을 애니캐스트 엣지에서 받아 AWS 백본으로 가까운 정상 리전에 보내고, 장애 시 즉시 다른 리전으로 재라우팅합니다. Route 53 지연 시간 라우팅도 리전을 고르지만 DNS라서 클라이언트의 DNS 캐시 때문에 전환이 느릴 수 있습니다(0016).</p></div>
+  <div class="feedback"><p><strong>정답은 AWS Global Accelerator 표준 가속기입니다.</strong><br>
+  게임 애플리케이션의 핵심 조건은 <strong>UDP 프로토콜 지원</strong>과 <strong>DNS 캐싱 지연 없는 신속한 리전 페일오버</strong>입니다. Global Accelerator는 TCP 및 UDP 패킷을 가장 가까운 AWS 엣지에서 애니캐스트로 수신하여 초고속 사설 백본망으로 중계하며, 백엔드 헬스체크를 통해 장애 발생 시 DNS 캐싱과 무관하게 내부 네트워크 레벨에서 1분 이내에 트래픽을 다른 정상 리전으로 즉시 우회시킵니다.<br>
+  - <strong>오답 분석</strong>:
+  - CloudFront + Lambda@Edge: CloudFront는 HTTP/HTTPS 웹 트래픽 전용 CDN 서비스이므로 UDP 통신을 지원하지 않습니다.
+  - Route 53 지연 시간 라우팅: DNS 기반 라우팅은 클라이언트 기기나 로컬 ISP 리졸버의 DNS 캐시(TTL) 때문에 장애 발생 후에도 이전 IP로 계속 패킷을 보내는 지연 문제가 발생합니다.
+  - S3 Transfer Acceleration: S3로의 대용량 파일 업로드/다운로드 전용 기능입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q2. 정적 웹사이트를 S3에 두고 CloudFront로 배포합니다. 사용자가 S3 객체 URL로 직접 접근하지 못하게 하고, 객체는 SSE-KMS로 암호화되어 있습니다. 가장 적합한 방법은?</p>
+  <p class="q-title">Q2. 한 기업이 S3 버킷에 저장된 정적 웹사이트 자산을 CloudFront 배포를 통해 서비스하고 있습니다. 모든 S3 객체는 AWS KMS 고객 관리형 키(SSE-KMS)로 암호화되어 있습니다. 사용자가 S3 객체 URL로 직접 우회 접근하는 것을 원천 차단하고 오직 CloudFront를 거쳐서만 접근하도록 구성하려 합니다. 가장 적합한 방법은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">버킷을 퍼블릭으로 두고 Referer 헤더로 제한</button>
-    <button class="opt">오리진 액세스 ID(OAI)를 만들어 버킷에 연결</button>
-    <button class="opt">S3 웹사이트 엔드포인트를 오리진으로 지정해 둔다</button>
-    <button class="opt">OAC를 설정하고 버킷 정책으로 배포만 허용해 둠</button>
+    <button class="opt">S3 버킷을 퍼블릭으로 설정하고 HTTP Referer 헤더를 검증하는 버킷 정책을 작성한다</button>
+    <button class="opt">CloudFront 오리진 액세스 ID(OAI)를 생성하여 버킷 정책에 연결한다</button>
+    <button class="opt">S3의 정적 웹사이트 호스팅 엔드포인트를 CloudFront의 오리진으로 지정한다</button>
+    <button class="opt">오리진 액세스 제어(OAC)를 설정하고 버킷 정책에서 해당 CloudFront 배포 ARN만 허용한다</button>
   </div>
-  <div class="feedback"><p>OAC는 SSE-KMS를 지원하며, 버킷 정책에서 <code>cloudfront.amazonaws.com</code> 서비스 주체와 <code>AWS:SourceArn</code> 조건으로 내 배포만 허용합니다(KMS 키 정책에도 허용 추가). 레거시 OAI는 SSE-KMS를 지원하지 않거나 우회가 필요하고, 웹사이트 엔드포인트는 커스텀 오리진이라 OAC를 쓸 수 없습니다.</p></div>
+  <div class="feedback"><p><strong>정답은 오리진 액세스 제어(OAC)를 설정하고 버킷 정책에서 해당 배포 ARN만 허용하는 것입니다.</strong><br>
+  AWS의 최신 표준인 <strong>OAC(Origin Access Control)</strong>는 <strong>SSE-KMS 암호화된 S3 객체를 완벽히 지원</strong>합니다. S3 버킷 정책에서 <code>cloudfront.amazonaws.com</code> 서비스 주체를 허용하고, <code>AWS:SourceArn</code> 조건으로 특정 CloudFront 배포 ARN을 지정하면 직접 우회 접근이 완벽히 차단됩니다(KMS 키 정책에도 복호화 권한 추가).<br>
+  - <strong>오답 분석</strong>:
+  - 퍼블릭 버킷 + Referer 헤더: Referer 헤더는 클라이언트가 손쉽게 위조할 수 있어 보안 통제로 적합하지 않으며, 버킷을 퍼블릭으로 여는 것은 심각한 보안 결함입니다.
+  - 레거시 OAI: 기존 OAI(Origin Access Identity)는 SSE-KMS로 암호화된 S3 객체에 대한 접근을 지원하지 않습니다.
+  - S3 웹사이트 엔드포인트: 정적 웹 호스팅 엔드포인트는 일반 커스텀 HTTP 오리진으로 취급되어 OAC 기능을 적용할 수 없습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q3. 온라인 강의 플랫폼이 유료 회원에게만 강의 영상(HLS, 영상 하나당 수백 개 조각 파일)을 제공하려 합니다. 기존 URL 구조는 바꾸고 싶지 않습니다. 무엇을 써야 합니까?</p>
+  <p class="q-title">Q3. 한 온라인 교육 플랫폼이 유료 구독 회원에게만 프리미엄 동영상 강의를 스트리밍(HLS 프로토콜, 비디오 하나당 수백 개의 .ts 세그먼트 조각 파일로 분할됨)으로 제공하려 합니다. 애플리케이션의 기존 비디오 URL 구조를 일일이 변경하지 않고 회원 인증을 처리할 수 있는 가장 적합한 CloudFront 보안 기능은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">CloudFront의 서명된 쿠키</button>
-    <button class="opt">CloudFront 서명된 URL</button>
-    <button class="opt">CloudFront의 지리적 제한</button>
-    <button class="opt">S3의 미리 서명된 URL 발급함</button>
+    <button class="opt">CloudFront 서명된 쿠키(Signed Cookies)를 발급한다</button>
+    <button class="opt">동영상 파일 조각마다 CloudFront 서명된 URL(Signed URLs)을 생성한다</button>
+    <button class="opt">CloudFront 지리적 제한(Geographic Restrictions)을 활성화한다</button>
+    <button class="opt">동영상 조각 파일마다 S3 미리 서명된 URL(Presigned URLs)을 발급한다</button>
   </div>
-  <div class="feedback"><p>여러 제한 파일(HLS 조각 전부)에 접근을 주고 URL을 바꾸지 않으려면 서명된 쿠키입니다. 서명된 URL은 파일 하나 단위라 조각마다 URL을 바꿔야 합니다. 지리적 제한은 회원 여부가 아니라 국가 기준입니다.</p></div>
+  <div class="feedback"><p><strong>정답은 CloudFront 서명된 쿠키(Signed Cookies)를 발급하는 것입니다.</strong><br>
+  HLS 스트리밍처럼 <strong>하나의 콘텐츠가 수백~수천 개의 미디어 파일 조각들로 구성되어 있거나, 웹사이트의 URL 체계를 그대로 유지하면서 다수의 보호된 리소스에 한 번에 접근 권한을 부여해야 할 때</strong>는 서명된 쿠키(Signed Cookies)가 유일하고 완벽한 해법입니다. 사용자가 로그인하면 인증 서버가 서명된 쿠키를 브라우저에 설정해 주고, 이후 브라우저가 요청하는 모든 세그먼트 파일에 동일한 쿠키가 자동으로 실려 가므로 URL 수정이 전혀 필요 없습니다.<br>
+  - <strong>오답 분석</strong>:
+  - 서명된 URL: 개별 파일 하나마다 서명 파라미터가 붙은 고유 URL을 생성해야 하므로, 수백 개의 HLS 영상 조각 파일들을 매번 URL 변경하며 처리하기에는 극도로 비효율적입니다.
+  - 지리적 제한: 국가 단위 접근 통제일 뿐 개별 유료 회원 인증 기능이 아닙니다.
+  - S3 미리 서명된 URL: CloudFront 캐싱 이점을 활용하지 못하고 S3로 직접 유입되며, 세그먼트마다 URL을 발급해야 하는 한계가 동일합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q4. 금융 회사의 B2B 고객사들은 방화벽에서 IP 주소를 허용 목록으로만 열어 줍니다. 회사의 API는 두 리전의 NLB 뒤에서 돌고, 엔드포인트는 앞으로 자주 바뀝니다. 가장 적합한 설계는?</p>
+  <p class="q-title">Q4. 한 금융 핀테크 기업의 글로벌 B2B 고객사들은 사내 엄격한 보안 규정으로 인해 방화벽의 아웃바운드 규칙에 오직 고정된 IP 주소만을 허용 목록(Allowlist)으로 등록할 수 있습니다. 기업의 API 백엔드는 두 개 AWS 리전의 Network Load Balancer(NLB) 뒤에서 가동 중이며, 향후 인프라 업데이트 시 백엔드 엔드포인트가 변경될 수 있습니다. 고객사 방화벽 변경을 최소화하는 가장 적합한 아키텍처는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">각 NLB의 IP를 고객사에 주고 바뀔 때마다 다시 공지함</button>
-    <button class="opt">CloudFront 배포를 두고 엣지 IP 범위를 공유한다</button>
-    <button class="opt">Global Accelerator 고정 IP 두 개를 공유</button>
-    <button class="opt">Route 53 장애 조치 레코드의 도메인 이름을 공유한다</button>
+    <button class="opt">각 리전 NLB의 탄력적 IP 주소들을 고객사에 전달하고 변경될 때마다 공지한다</button>
+    <button class="opt">CloudFront 배포를 생성하고 전 세계 수천 개 엣지의 IP 대역 전체를 고객사에 전달한다</button>
+    <button class="opt">AWS Global Accelerator를 생성하여 제공되는 2개의 고정 Anycast IP 주소를 공유한다</button>
+    <button class="opt">Route 53 장애 조치 라우팅 정책을 설정하고 CNAME 도메인 이름을 공유한다</button>
   </div>
-  <div class="feedback"><p>Global Accelerator의 정적 애니캐스트 IP는 가속기가 존재하는 동안 유지되므로, 고객사는 IP 두 개만 한 번 허용하면 됩니다. 뒤에서 엔드포인트를 추가·제거해도 IP는 그대로입니다. 도메인 공유는 IP 허용 목록 요구를 충족하지 못하고, CloudFront 엣지 IP 범위는 넓고 고정 두 개가 아닙니다.</p></div>
+  <div class="feedback"><p><strong>정답은 AWS Global Accelerator를 생성하고 2개의 고정 Anycast IP 주소를 공유하는 것입니다.</strong><br>
+  Global Accelerator는 가속기가 유지되는 동안 <strong>절대로 변경되지 않는 2개의 정적 Anycast IPv4 주소</strong>를 제공합니다. B2B 고객사 방화벽에 이 2개 IP만 최초 1회 등록해 두면, 백엔드에서 서버를 교체하거나 다른 리전으로 페일오버하더라도 고객사 방화벽 설정을 다시 수정할 필요가 전혀 없습니다.<br>
+  - <strong>오답 분석</strong>:
+  - 각 NLB IP 전달: 백엔드 변경이나 리전 전환 시마다 고객사 보안팀에 방화벽 변경을 계속 요청해야 하므로 심각한 운영 오버헤드가 발생합니다.
+  - CloudFront 엣지 IP 대역: CloudFront의 엣지 IP 범위는 전 세계 수백 개 대역으로 구성되어 있으며 수시로 동적으로 변경되므로 기업 방화벽 허용 목록용으로 사용할 수 없습니다.
+  - Route 53 도메인 공유: 고객사는 도메인이 아닌 고정 IP 주소 허용 목록만을 지원하므로 요구 사항을 충족하지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1,4">
-  <p class="q-title">Q5. 뉴스 사이트가 CloudFront로 이미지와 HTML을 배포합니다. 오리진 부하를 줄이면서, 기사 수정 시 바뀐 이미지가 빨리 보이게 하려 합니다. 적절한 조치는? (두 개를 고르세요)</p>
+  <p class="q-title">Q5. 대형 뉴스 포털 웹사이트가 CloudFront를 통해 기사 본문과 수만 개의 이미지 자산을 배포하고 있습니다. 오리진 웹 서버의 CPU 및 대역폭 부하를 대폭 줄이면서도, 기사 수정 시 교체된 이미지가 전 세계 독자들에게 지연 없이 즉시 반영되도록 구성하려 합니다. 가장 비용 효율적인 두 가지 조치는 무엇입니까? (두 개를 고르세요)</p>
   <div class="options">
-    <button class="opt">모든 객체 TTL을 0초로 일괄 설정한다</button>
-    <button class="opt">변경 이미지를 버전 붙은 이름으로 배포함</button>
-    <button class="opt">오리진 앞에 NAT 게이트웨이를 추가한다</button>
-    <button class="opt">CloudFront를 빼고 S3로 제공함</button>
-    <button class="opt">정적 이미지에 긴 max-age를 붙인다</button>
+    <button class="opt">모든 이미지 객체의 캐시 TTL을 0초로 설정한다</button>
+    <button class="opt">이미지 파일이 변경될 때마다 파일명에 버전(예: image-v2.jpg)을 포함하여 배포한다</button>
+    <button class="opt">오리진 웹 서버 앞단에 NAT 게이트웨이를 추가로 배치한다</button>
+    <button class="opt">CloudFront 배포를 제거하고 S3 버킷에서 직접 이미지를 서비스한다</button>
+    <button class="opt">정적 이미지 응답 헤더에 긴 Cache-Control max-age 값을 설정한다</button>
   </div>
-  <div class="feedback"><p>긴 TTL(<code>Cache-Control: max-age</code>)은 캐시 적중을 늘려 오리진 부하를 줄이고, 바뀐 파일은 버전 이름으로 배포하면 즉시 새 파일이 나갑니다(무효화 비용도 없음). TTL 0초는 매번 오리진에 확인하러 가므로 부하 감소와 반대이고, CloudFront를 빼면 엣지 캐싱 이점이 사라집니다.</p></div>
+  <div class="feedback"><p><strong>정답은 버전이 포함된 파일명 배포(1)와 긴 max-age 헤더 설정(4)입니다.</strong><br>
+  1. <strong>긴 max-age 설정</strong>: 정적 이미지에 긴 TTL을 지정하면 전 세계 엣지 캐시 적중률이 극대화되어 오리진 서버로 들어오는 중복 요청과 부하를 거의 완벽하게 없앨 수 있습니다.<br>
+  2. <strong>버전이 포함된 파일명(Versioned Filename)</strong>: 이미지가 수정되었을 때 URL 파일명을 변경하면(예: <code>header_v2.png</code>), 엣지는 이를 즉각 새로운 파일로 인식하여 오리진에서 새로 가져옵니다. 추가적인 캐시 무효화(Invalidation) 비용이 전혀 들지 않고 즉각적인 변경 반영이 가능한 공식 모범 사례입니다.<br>
+  - <strong>오답 분석</strong>:
+  - TTL 0초 설정: 엣지 로케이션이 매 요청마다 오리진에 유효성을 검증하러 가므로 오리진 부하 감소 목표와 정반대 결과를 초래합니다.
+  - NAT 게이트웨이 추가: 아웃바운드 인터넷 접속 장치일 뿐 인바운드 웹 트래픽 캐싱과 무관합니다.
+  - CloudFront 제거: 전 세계 엣지 캐싱 혜택을 포기하고 모든 트래픽이 원본 S3로 집중되어 비용과 부하가 폭증합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q6. CloudFront 뷰어 요청마다 간단한 헤더를 추가하고 URL을 재작성해야 합니다. 초당 요청이 매우 많고, 외부 서비스 호출은 필요 없습니다. 운영과 비용 면에서 가장 적합한 것은?</p>
+  <p class="q-title">Q6. CloudFront로 들어오는 뷰어 요청(Viewer Request)마다 간단한 HTTP 헤더를 추가하고 특정 URL 경로를 표준 형식으로 재작성(Rewrite)해야 합니다. 초당 수백만 건의 대규모 요청이 지속적으로 인입되며, 외부 서드파티 네트워크 호출이나 데이터베이스 조회가 전혀 필요하지 않습니다. 가장 비용 효율적이고 지연 시간이 짧은 솔루션은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">CloudFront Functions</button>
-    <button class="opt">Lambda@Edge 뷰어 요청 함수</button>
-    <button class="opt">ALB 리스너 규칙으로 헤더를 처리함</button>
-    <button class="opt">EC2로 운영하는 리버스 프록시 서버</button>
+    <button class="opt">CloudFront Functions를 작성하여 뷰어 요청 이벤트에 연결한다</button>
+    <button class="opt">Lambda@Edge 함수를 작성하여 뷰어 요청 이벤트에 연결한다</button>
+    <button class="opt">Application Load Balancer(ALB)의 리스너 라우팅 규칙으로 헤더를 처리한다</button>
+    <button class="opt">프라이빗 서브넷에 Nginx 리버스 프록시 EC2 인스턴스를 구축하여 운영한다</button>
   </div>
-  <div class="feedback"><p>CloudFront Functions는 1밀리초 미만의 가벼운 함수로 헤더 조작, URL 재작성에 맞고 초당 수백만 요청까지 확장됩니다. Lambda@Edge는 네트워크 접근이나 본문 처리처럼 더 무거운 작업이 필요할 때 고릅니다.</p></div>
+  <div class="feedback"><p><strong>정답은 CloudFront Functions를 뷰어 요청 이벤트에 연결하는 것입니다.</strong><br>
+  CloudFront Functions는 <strong>초당 수백만 건 이상의 대규모 요청을 1밀리초 미만의 초저지연</strong>으로 처리할 수 있도록 설계된 초경량 JavaScript 엣지 컴퓨팅 엔진입니다. 외부 네트워크 호출이 필요 없는 단순 헤더 조작, URL 재작성, 토큰 검증 시나리오에서 Lambda@Edge 대비 약 1/6 수준의 저렴한 비용으로 최고의 성능을 제공합니다.<br>
+  - <strong>오답 분석</strong>:
+  - Lambda@Edge: 외부 네트워크 호출, 본문(Body) 파싱, 복잡한 컴퓨팅이 필요한 고중량 작업에 적합하며, 단순 헤더/URL 조작에 쓰기에는 비용과 실행 지연(수십 밀리초)이 상대적으로 큽니다.
+  - ALB 리스너 규칙: 엣지가 아닌 오리진 리전까지 요청이 도달해야 하므로 엣지 레벨의 지연 시간 단축 효과를 누릴 수 없습니다.
+  - EC2 리버스 프록시: 인프라 관리 부담, 고가용성 구성, 높은 상시 인스턴스 비용이 발생합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q7. (복습 0011) CloudFront 오리진으로 쓰는 ALB가 인터넷에 노출되어 있어, 공격자가 CloudFront를 우회해 ALB로 직접 요청합니다. ALB와 EC2를 인터넷에서 완전히 숨기려면?</p>
+  <p class="q-title">Q7. (복습 0011) CloudFront 배포의 오리진으로 사용 중인 Application Load Balancer(ALB)가 현재 인터넷에 퍼블릭으로 노출되어 있습니다. 이로 인해 일부 악성 사용자들이 CloudFront의 보안 검사와 WAF를 우회하여 ALB의 DNS 주소로 직접 HTTP 요청을 보내고 있습니다. ALB와 백엔드 EC2 인스턴스들을 인터넷에서 완전히 은폐하고 오직 CloudFront만을 유일한 공개 진입점으로 강제하는 가장 안전한 설계는 무엇입니까?</p>
   <div class="options">
-    <button class="opt">ALB를 NLB로 교체하고 탄력적 IP를 새로 할당함</button>
-    <button class="opt">ALB 보안 그룹을 0.0.0.0/0 인바운드로 연다</button>
-    <button class="opt">ALB 앞에 Global Accelerator 추가함</button>
-    <button class="opt">프라이빗 서브넷 내부 ALB를 VPC 오리진으로 연결</button>
+    <button class="opt">ALB를 Network Load Balancer(NLB)로 교체하고 퍼블릭 탄력적 IP를 새로 바인딩한다</button>
+    <button class="opt">ALB 보안 그룹의 인바운드 규칙을 0.0.0.0/0 포트 443으로 완전히 개방한다</button>
+    <button class="opt">ALB 앞단에 AWS Global Accelerator를 추가로 배치한다</button>
+    <button class="opt">ALB를 프라이빗 서브넷의 내부(Internal) 로드 밸런서로 구성하고 CloudFront VPC 오리진을 연결한다</button>
   </div>
-  <div class="feedback"><p>VPC 오리진은 프라이빗 서브넷의 ALB, NLB, EC2를 CloudFront 오리진으로 쓰게 해 CloudFront를 단일 진입점으로 만듭니다. NLB로 바꾸거나 Global Accelerator를 더해도 공개 진입점이 남습니다. 0.0.0.0/0 인바운드는 정반대 방향입니다(0005).</p></div>
+  <div class="feedback"><p><strong>정답은 ALB를 프라이빗 서브넷의 내부 로드 밸런서로 두고 CloudFront VPC 오리진을 연결하는 것입니다.</strong><br>
+  CloudFront의 <strong>VPC 오리진(VPC Origins)</strong> 기능을 사용하면, VPC 내부 프라이빗 서브넷에 위치한 내부 ALB나 NLB, EC2를 CloudFront의 오리진으로 직접 연결할 수 있습니다. ALB에 퍼블릭 IP나 인터넷 게이트웨이 경로를 부여할 필요가 전혀 없으므로, 외부 공격자가 ALB로 직접 우회 접속하는 경로가 물리적으로 원천 차단됩니다.<br>
+  - <strong>오답 분석</strong>:
+  - NLB 교체: 퍼블릭 IP가 여전히 인터넷에 노출되어 우회 공격을 막지 못합니다.
+  - 0.0.0.0/0 개방: 전 세계 누구나 ALB로 직접 들어올 수 있게 만드는 최악의 보안 구성입니다.
+  - Global Accelerator 추가: 공개 진입점이 하나 더 늘어날 뿐 인터넷 직접 접근 차단 해결책이 아닙니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q8. 영상 스트리밍 회사가 라이선스 계약상 특정 국가에서는 콘텐츠를 제공하면 안 됩니다. 배포 전체에 국가 단위로 적용하면 됩니다. 운영 오버헤드가 가장 적은 방법은?</p>
+  <p class="q-title">Q8. 글로벌 미디어 스트리밍 플랫폼이 콘텐츠 배급 라이선스 계약에 따라 특정 국가의 사용자들에게는 동영상 콘텐츠를 일절 제공해서는 안 됩니다. 이 제한은 배포 전체에 국가 단위로 일괄 적용되어야 합니다. 개발 및 운영 오버헤드가 가장 적은 구현 방법은 무엇입니까?</p>
   <div class="options">
-    <button class="opt">서드파티 위치 서비스로 서명된 URL을 발급한다</button>
-    <button class="opt">Route 53 지리 위치 라우팅 레코드를 생성</button>
-    <button class="opt">CloudFront 지리적 제한 차단 목록 설정</button>
-    <button class="opt">Lambda@Edge에서 국가 판별 코드를 작성</button>
+    <button class="opt">서드파티 IP 지리 위치 서비스를 연동하여 허가된 사용자에게만 서명된 URL을 발급한다</button>
+    <button class="opt">Amazon Route 53 지리 위치(Geolocation) 라우팅 레코드를 생성하여 트래픽을 분기한다</button>
+    <button class="opt">CloudFront의 지리적 제한(Geographic Restrictions) 차단 목록(Blocklist)을 구성한다</button>
+    <button class="opt">Lambda@Edge를 작성하여 뷰어의 IP를 확인하고 국가를 판별하는 코드를 직접 배포한다</button>
   </div>
-  <div class="feedback"><p>배포 전체, 국가 단위라면 CloudFront의 지리적 제한이 가장 간단합니다(차단 시 403). 서드파티 위치 서비스는 국가보다 세밀하거나 일부 파일만 제한할 때 씁니다. Route 53 지리 위치 라우팅은 위치별로 다른 엔드포인트로 <em>보내는</em> 기능이지 접근 차단 기능이 아닙니다(0016).</p></div>
+  <div class="feedback"><p><strong>정답은 CloudFront 지리적 제한(Geographic Restrictions) 차단 목록을 구성하는 것입니다.</strong><br>
+  CloudFront에 기본 내장된 <strong>지리적 제한(Geographic Restrictions)</strong> 기능은 배포 전체에 대해 국가 단위의 허용 목록(Allowlist) 또는 차단 목록(Blocklist)을 클릭 몇 번으로 손쉽게 설정할 수 있습니다. 차단된 국가에서 들어오는 요청은 엣지 로케이션에서 오리진으로 가지 않고 즉각 HTTP 403 Forbidden 에러로 차단되므로, 별도의 코드 작성이나 외부 서비스 연동 없이 최소한의 관리 노력으로 라이선스 요건을 완벽히 준수할 수 있습니다.<br>
+  - <strong>오답 분석</strong>:
+  - 서드파티 위치 서비스 연동: 외부 API 호출 비용과 추가적인 애플리케이션 개발/유지보수 부담이 발생합니다(도시 단위나 특정 파일별 제한 같은 고도로 세분화된 요구에만 필요).
+  - Route 53 지리 위치 라우팅: 사용자의 위치에 따라 서로 다른 리소스 엔드포인트로 <em>안내(라우팅)</em>해 주는 기능이지, 특정 국가의 접근을 차단하는 보안 장치가 아닙니다.
+  - Lambda@Edge 코드 개발: 내장 기능으로 해결 가능한 요구에 불필요하게 커스텀 코드와 추가 실행 비용을 유발합니다.</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) CloudFront와 Global Accelerator를 가르는 기준 네 가지(프로토콜, 캐싱, 진입점, 장애 대응). (2) S3 오리진을 CloudFront로만 열 때의 설정 두 가지. (3) 서명된 URL과 서명된 쿠키는 각각 언제?</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
-  <button data-reveal>답 확인</button>
+  <p>교재를 보지 말고 머릿속에서 직접 떠올려 적어 보세요.<br>
+  (1) CloudFront와 Global Accelerator의 4대 차이점(지원 프로토콜, 엣지 캐싱 유무, 클라이언트 진입점, 장애 대응 방식)은 무엇인가요?<br>
+  (2) S3 버킷을 오직 CloudFront 배포를 통해서만 접근하도록 제한할 때 필요한 두 가지 핵심 구성(OAC 및 정책)은 무엇인가요?<br>
+  (3) CloudFront 서명된 URL(Signed URLs)과 서명된 쿠키(Signed Cookies)는 각각 어떤 상황에서 선택해야 하나요?</p>
+  <textarea placeholder="여기에 직접 적어 보며 개념을 정리해 보세요"></textarea>
+  <button data-reveal>정답 확인하기</button>
   <div class="answer">
-    <p>(1) CloudFront: HTTP/HTTPS, 엣지 캐시, 도메인 이름 진입, 오리진 그룹 장애 조치. Global Accelerator: TCP/UDP, 캐시 없음(패킷 프록시), 고정 애니캐스트 IP 두 개, 리전 엔드포인트 간 즉시 장애 조치.</p>
-    <p>(2) 배포에 OAC 연결 + 버킷 정책에서 Principal <code>cloudfront.amazonaws.com</code>, Condition <code>AWS:SourceArn</code> = 내 배포. SSE-KMS면 KMS 키 정책에도 허용. 웹사이트 엔드포인트 버킷은 OAC 불가.</p>
-    <p>(3) URL: 개별 파일, 쿠키 미지원 클라이언트. 쿠키: 여러 제한 파일, URL을 바꾸고 싶지 않을 때.</p>
+    <p><strong>(1) CloudFront vs Global Accelerator 4대 기준</strong>:<br>
+    - 프로토콜: CloudFront는 HTTP/HTTPS 웹 콘텐츠 / Global Accelerator는 TCP 및 UDP 전반(게임, VoIP, IoT 등)<br>
+    - 엣지 캐싱: CloudFront는 지원(오리진 부하 및 전송비 절감) / Global Accelerator는 캐싱 없음(사설 전용망 패킷 프록시)<br>
+    - 진입점: CloudFront는 도메인 이름(d111.cloudfront.net) / Global Accelerator는 2개의 고정 Anycast IP 주소(방화벽 허용 목록에 유리)<br>
+    - 장애 대응: CloudFront는 오리진 그룹(5xx 에러 시 보조 오리진) / Global Accelerator는 1분 이내 AWS 내부 네트워크 차원의 즉각적인 리전 페일오버(DNS 캐싱 지연 없음)</p>
+    <p><strong>(2) S3 오리진 보호 (OAC)</strong>:<br>
+    - CloudFront 배포 설정에서 S3 오리진에 최신 OAC(Origin Access Control)를 연결.<br>
+    - S3 버킷 정책에서 <code>Principal</code>을 <code>cloudfront.amazonaws.com</code>으로 지정하고, <code>Condition</code>에서 <code>AWS:SourceArn</code>을 해당 CloudFront 배포 ARN으로 제한.<br>
+    - (SSE-KMS 암호화 객체인 경우 KMS 키 정책에도 CloudFront 서비스 주체 복호화 허용 추가. S3 웹사이트 엔드포인트는 OAC 불가)</p>
+    <p><strong>(3) 서명된 URL vs 서명된 쿠키</strong>:<br>
+    - 서명된 URL: 개별 파일 하나(다운로드 설치 파일, 특정 PDF 문서), 또는 쿠키를 지원하지 않는 클라이언트.<br>
+    - 서명된 쿠키: 여러 개의 보호된 파일(HLS 비디오 스트리밍의 수백 개 세그먼트 파일, 유료 회원 전용 영역), 또는 기존 웹사이트의 URL 경로를 변경하고 싶지 않을 때.</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">"Restrict access to an Amazon S3 origin"</a>. OAC vs OAI, 버킷 정책 예시, SSE-KMS 키 정책까지 시험에 나오는 S3+CloudFront 보안이 한 페이지에 있습니다. Global Accelerator는 <a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">"Understanding AWS Global Accelerator use cases"</a>를 함께 보세요. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (선택)</strong>: 퍼블릭 액세스가 막힌 S3 버킷에 <code>index.html</code>을 올리고, CloudFront 배포를 만들 때 원본 액세스로 OAC를 선택한 뒤 콘솔이 제안하는 버킷 정책을 붙여 보세요. CloudFront 도메인으로는 열리고 S3 객체 URL로는 AccessDenied가 나는지 확인합니다. 소량이면 비용은 거의 없지만, 실습 후 배포를 비활성화·삭제하세요. Global Accelerator는 가속기가 있는 동안 고정 시간 요금이 붙으므로 실습은 생략해도 됩니다.</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>공식 1차 자료 추천 (필독, 약 10분 소요)</strong>: AWS 공식 문서의 <a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html">"Restrict access to an Amazon S3 origin (OAC)"</a>를 꼭 정독해 보세요. OAC와 레거시 OAI의 차이점, 버킷 정책 실제 작성 예시, SSE-KMS 키 정책 연동까지 시험에 출제되는 모든 S3+CloudFront 보안 요소가 한눈에 정리되어 있습니다. Global Accelerator의 실전 적용 패턴은 <a href="https://docs.aws.amazon.com/global-accelerator/latest/dg/introduction-benefits-of-migrating.html">"Understanding AWS Global Accelerator use cases"</a> 문서를 함께 참고하세요. (한국어 번역 문서는 URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>를 추가하면 열람 가능합니다.)</p>
+<p><strong>간단 실습 가이드 (비용 거의 없음)</strong>: 퍼블릭 액세스가 완전히 차단된 S3 버킷을 하나 생성하고 <code>index.html</code>을 업로드한 뒤, CloudFront 콘솔에서 새 배포를 생성해 보세요. 원본 도메인으로 해당 S3 버킷을 선택하고 "오리진 액세스 제어(OAC)"를 활성화한 후 콘솔에서 복사해 주는 S3 버킷 정책을 버킷에 붙여넣습니다. 브라우저에서 S3 객체 URL로 접근하면 <code>AccessDenied(403)</code>가 뜨지만, CloudFront 배포 도메인 주소로는 정상적으로 웹페이지가 열리는 것을 직접 확인해 보세요. (실습 완료 후 생성된 CloudFront 배포는 비활성화 후 삭제하세요. Global Accelerator는 가속기 생성 시 고정 시간 요금이 발생하므로 실습은 콘솔 구경 정도로만 진행하시길 권장합니다.)</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q1(Route 53 vs Global Accelerator)과 Q4(고정 IP)는 0016의 Route 53 지식과 얽혀 있어 헷갈리기 쉬운 지점입니다. 어떤 키워드를 보고 골랐는지 말씀해 주시면 다음 레슨을 맞추는 데 도움이 됩니다.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>퀴즈 점수 및 헷갈렸던 문항 번호와 함께 이해가 잘 가지 않는 개념이 있다면 편하게 질문해 주세요. 특히 Q1의 Global Accelerator vs Route 53 장애 조치 메커니즘의 차이(DNS TTL 캐싱 문제), Q4의 고정 IP 요구 사항 분석, Q7의 VPC 오리진 활용법은 수험생들이 자주 혼동하는 핵심 시험 포인트입니다. 남겨주신 질문을 바탕으로 다음 복습 시 보완해 드리겠습니다.</p>
 </div>
 
 <h3>출처</h3>

@@ -10,46 +10,52 @@
 <main>
 
 <p class="kicker">레슨 0008 · 도메인 1 보안 (30%) · Task 1.3</p>
-<h1>열쇠는 누가 쥐는가:<br>KMS, 저장 시·전송 중 암호화, ACM</h1>
-<p class="lede">암호화 문제는 거의 항상 "키를 누가 관리하고, 누가 감사하고, 누가 교체하나?"로 귀결됩니다. 오늘은 그 세 질문으로 KMS 키 종류, S3 암호화 옵션, EBS/RDS 암호화, ACM, CloudHSM을 한 번에 정리합니다.</p>
-<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/security-services.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+<h1>열쇠는 누가 쥐는가:<br>KMS, 저장 중·전송 중 암호화, ACM 완벽 정복</h1>
+<p class="lede">AWS 보안 및 암호화 시험 문제는 거의 예외 없이 세 가지 질문으로 귀결됩니다. "암호화 키를 누가 만들고 관리하는가?", "키 사용 이력을 누가 감사(Audit)할 수 있는가?", 그리고 "주기적인 키 교체(Rotation)를 누가 주도하는가?"입니다. 이번 레슨에서는 이 세 질문을 나침반 삼아 KMS 키의 세 가지 종류, S3의 다양한 암호화 방식, EBS·RDS 암호화의 특성과 절차, 전송 중 암호화를 책임지는 ACM, 그리고 독립된 단일 테넌트 장비인 CloudHSM까지 원리부터 차근차근 정리합니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 암호화 시나리오 8문항 완전 정복</span><span>📌 <a href="../reference/security-services.html">보안 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
 
-<h2>왜 이것인가</h2>
-<p><strong>시험에서</strong>: "규정상 키 사용을 감사하고 교체를 직접 통제해야 한다", "기존 암호화되지 않은 RDS를 암호화하라" 같은 문제가 Task 1.3의 단골입니다.<br>
-<strong>실무에서</strong>: 키 하나를 잘못 지우면 그 키로 암호화한 데이터는 영영 복구할 수 없습니다. 키의 수명 주기를 아는 것이 곧 데이터를 지키는 일입니다.</p>
+<h2>왜 KMS와 암호화를 배워야 할까요?</h2>
+<p><strong>시험 관점</strong>: "규정상 키 사용 내역을 완벽히 감사하고 키 교체 주기를 회사가 직접 통제해야 한다", "기존에 암호화되지 않은 RDS DB 인스턴스를 다운타임을 최소화하여 암호화하라", "다른 AWS 계정과 암호화된 데이터를 안전하게 공유하라" 같은 실무형 시나리오가 Task 1.3에서 가장 높은 빈도로 출제됩니다.<br>
+<strong>실무 관점</strong>: 클라우드 환경에서 암호화 키는 모든 데이터 자산의 생명줄입니다. 암호화 키 하나를 실수로 삭제하거나 접근 정책을 잘못 구성하면, 그 키로 암호화된 수 테라바이트의 비즈니스 데이터가 한순간에 영구히 복구 불가능한 상태가 됩니다. 반대로 KMS의 키 정책과 봉투 암호화 원리를 정확히 꿰뚫고 있다면, 외부 유출이나 권한 남용 위협으로부터 철통같은 보안 아키텍처를 설계할 수 있습니다.</p>
 
-<h2>저장 시 vs 전송 중</h2>
-<p>데이터 보호는 두 상태로 나뉩니다. S3 문서의 정의로는 <strong>전송 중</strong>은 S3로 오가는 동안, <strong>저장 시</strong>는 데이터 센터 디스크에 저장되어 있는 동안입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup></p>
+<h2>저장 중 암호화(At Rest) vs 전송 중 암호화(In Transit)</h2>
+<p>데이터 보안은 데이터가 존재하는 상태에 따라 크게 두 가지 영역으로 나뉩니다. AWS 공식 문서에 따르면 <strong>전송 중(In Transit)</strong>은 데이터가 클라이언트와 AWS 간, 또는 서비스 간 네트워크를 타고 이동하는 동안을 의미하며, <strong>저장 중(At Rest)</strong>은 데이터 센터의 물리 디스크나 스토리지 매체에 영구적으로 기록되어 머무르는 상태를 뜻합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup></p>
 <table>
-<tr><th></th><th>저장 시 (at rest)</th><th>전송 중 (in transit)</th></tr>
-<tr><td>위협</td><td>디스크·스냅샷·백업이 유출됨</td><td>네트워크 도청, 중간자 공격</td></tr>
-<tr><td>대표 수단</td><td>KMS 키로 서버 측 암호화(S3 SSE, EBS, RDS), 클라이언트 측 암호화</td><td>SSL/TLS(HTTPS). 인증서는 <strong>ACM</strong>으로 발급·갱신</td></tr>
-<tr><td>강제하는 법</td><td>버킷 기본 암호화, EBS 기본 암호화</td><td>S3 버킷 정책에서 <code>aws:SecureTransport</code>가 false인 요청을 Deny<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html">[10]</a></sup></td></tr>
+<tr><th>구분</th><th>저장 중 암호화 (At Rest)</th><th>전송 중 암호화 (In Transit)</th></tr>
+<tr><td>주요 위협</td><td>스토리지 디스크 도난, 백업 스냅샷 불법 유출, 물리 장비 폐기 시 데이터 노출</td><td>공공망 네트워크 도청(Sniffing), 패킷 변조, 중간자 공격(Man-in-the-Middle)</td></tr>
+<tr><td>대표적인 구현 수단</td><td>AWS KMS 키를 이용한 서버 측 암호화(S3 SSE, EBS, RDS 볼륨 암호화), 애플리케이션 레벨의 클라이언트 측 암호화</td><td>TLS/SSL 기반의 암호화 통신(HTTPS). SSL/TLS 디지털 인증서는 <strong>AWS Certificate Manager(ACM)</strong>를 통해 무료 발급 및 자동 갱신</td></tr>
+<tr><td>규정 준수 강제 방법</td><td>S3 버킷 기본 암호화 강제, EBS 계정별 기본 암호화(Encryption by default) 활성화</td><td>S3 버킷 정책에서 <code>"aws:SecureTransport": "false"</code>인 모든 요청에 대해 <code>Deny</code>를 선언하여 일반 HTTP 접속을 차단<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html">[10]</a></sup></td></tr>
 </table>
 
-<h2>KMS 키 세 종류</h2>
-<p>AWS KMS 키는 누가 만들고 관리하느냐에 따라 세 종류입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html">[1]</a></sup></p>
+<h2>KMS 키의 세 가지 종류: 한눈에 비교하기</h2>
+<p>AWS Key Management Service(KMS)에서 사용하는 KMS 키(과거 CMK로 불림)는 키를 생성하고 관리하는 주체와 권한의 범위에 따라 세 가지로 명확히 나뉩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html">[1]</a></sup></p>
 <table>
-<tr><th></th><th>고객 관리형 키</th><th>AWS 관리형 키</th><th>AWS 소유 키</th></tr>
-<tr><td>위치</td><td>내 계정</td><td>내 계정 (별칭 <code>aws/s3</code>, <code>aws/ebs</code> 등)</td><td>AWS 서비스 계정</td></tr>
-<tr><td>키 정책</td><td><strong>내가 전적으로 통제</strong></td><td>서비스가 통제, 나는 조회만</td><td>볼 수도 없음</td></tr>
-<tr><td>CloudTrail 감사</td><td>가능</td><td>가능</td><td>불가</td></tr>
-<tr><td>교체</td><td>선택 (자동/온디맨드)</td><td><strong>매년 자동, 변경 불가</strong></td><td>서비스가 결정</td></tr>
-<tr><td>요금</td><td>월 요금 + 사용 요금</td><td>월 요금 없음, 사용 요금</td><td>없음</td></tr>
+<tr><th>비교 항목</th><th>고객 관리형 키 (Customer Managed Key)</th><th>AWS 관리형 키 (AWS Managed Key)</th><th>AWS 소유 키 (AWS Owned Key)</th></tr>
+<tr><td>생성 위치 및 확인</td><td>내 AWS 계정에 생성되며 사용자가 직접 확인 가능</td><td>내 AWS 계정에 자동 생성 (별칭 형식: <code>aws/s3</code>, <code>aws/ebs</code> 등)</td><td>AWS 서비스 내부 계정에 존재 (내 계정 콘솔에 안 보임)</td></tr>
+<tr><td>키 정책 통제권</td><td><strong>고객이 전적으로 작성, 수정, 통제</strong></td><td>AWS 서비스가 기본 정책을 관리하며, 사용자는 읽기(조회)만 가능</td><td>사용자가 전혀 접근하거나 볼 수 없음</td></tr>
+<tr><td>CloudTrail 감사</td><td>키 사용 내역(누가 언제 어떤 데이터를 복호화했는지) <strong>완전 감사 가능</strong></td><td>키 사용 내역을 CloudTrail을 통해 <strong>감사 가능</strong></td><td>내 계정의 CloudTrail에 기록되지 않음 (감사 불가)</td></tr>
+<tr><td>자동 키 교체</td><td><strong>고객이 활성화 여부 선택 가능</strong> (매년 365일 또는 90~2560일 주기 지정, 온디맨드 즉시 교체 가능)</td><td><strong>1년(365일)마다 AWS가 자동으로 교체</strong> (사용자가 끄거나 변경 불가)</td><td>AWS 서비스 내부 일정에 따라 자체 교체</td></tr>
+<tr><td>비용 발생</td><td>키당 월 기본 요금($1/월) + KMS API 요청당 과금</td><td>키당 월 기본 요금 없음 (무료) + KMS API 요청당 과금</td><td>완전 무료 (KMS 요청 비용도 없음)</td></tr>
 </table>
-<p>시험에서 가장 중요한 차이 하나: <strong>AWS 관리형 키로 암호화한 리소스는 다른 계정과 공유할 수 없습니다.</strong><sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html">[1]</a></sup> SSE-KMS 데이터를 교차 계정으로 공유하려면 고객 관리형 키를 써서 키 정책에 상대 계정을 허용해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup> RDS도 AWS 관리형 키로 암호화한 스냅샷은 공유할 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></p>
+<p>시험에서 가장 결정적인 차이점 하나를 반드시 기억하세요: <strong>AWS 관리형 키(<code>aws/s3</code> 등)로 암호화한 리소스는 다른 AWS 계정과 절대 공유할 수 없습니다.</strong><sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html">[1]</a></sup> AWS 관리형 키의 키 정책은 AWS가 소유하므로 외부 계정의 접근을 허용하도록 수정할 수 없기 때문입니다. 따라서 SSE-KMS로 암호화된 S3 객체나 암호화된 RDS 스냅샷을 교차 계정(Cross-Account)으로 공유해야 한다면, 무조건 <strong>고객 관리형 키</strong>를 생성하여 키 정책에 상대 계정을 명시적으로 허용해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></p>
 
-<h2>키 정책: 0002의 예외가 여기서 나온다</h2>
-<p>0002에서 "같은 계정이면 한쪽만 허용해도 되지만, <strong>KMS 키 정책은 예외</strong>"라고 했습니다. 그 이유가 이것입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html">[2]</a></sup></p>
+<h2>KMS 키 정책: IAM 정책과의 관계와 예외 규칙</h2>
+<p>레슨 0002에서 "동일 계정 내부에서는 IAM 정책이나 리소스 정책 중 어느 한쪽만 Allow해도 접근할 수 있다(합집합 규칙)"고 배웠습니다. 하지만 <strong>KMS 키 정책은 이 규칙의 가장 대표적인 예외</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html">[2]</a></sup></p>
 <ol class="rules">
-  <li><strong>모든 KMS 키에는 키 정책이 정확히 하나</strong> 있습니다. 키 정책이 접근 제어의 1차 수단입니다.</li>
-  <li><strong>키 정책이 허용하지 않으면 IAM 정책으로 허용할 수 없습니다.</strong> 키 정책의 허락 없이는 Allow하는 IAM 정책이 효과가 없습니다. 루트 사용자나 키를 만든 사람도 예외가 아닙니다. (반대로 IAM 정책으로 <em>Deny</em>하는 것은 키 정책 없이도 됩니다.)</li>
-  <li><strong>기본 키 정책은 IAM 정책을 활성화</strong>합니다. 계정에 권한을 위임하는 문장이 있으면 그때부터 IAM 정책으로 키 사용을 허용할 수 있습니다.</li>
+  <li><strong>모든 KMS 키에는 반드시 하나의 키 정책(Key Policy)이 존재합니다.</strong> 키 정책은 해당 키에 대한 접근을 결정하는 최우선이자 필수적인 관문입니다.</li>
+  <li><strong>키 정책이 허용하지 않으면 IAM 정책의 Allow는 아무런 효력이 없습니다.</strong> 키 정책이 닫혀 있다면, 계정의 루트 사용자(Root User)나 관리자 권한(AdministratorAccess)을 가진 IAM 사용자라도 키에 접근할 수 없습니다. 오직 키 정책이 명시적으로 권한을 위임하거나 허용해야만 IAM 정책이 비로소 작동합니다. (단, IAM 정책의 <em>Deny</em>는 언제나 즉시 적용됩니다.)</li>
+  <li><strong>기본 키 정책(Default Key Policy)의 핵심 문장</strong>: 콘솔에서 고객 관리형 키를 생성할 때 기본 적용되는 정책에는 "루트 계정에 모든 권한을 위임한다"는 문장이 들어 있습니다. 이 문장이 있어야 비로소 계정 관리자가 IAM 사용자나 역할에 붙인 IAM 정책으로 키 권한을 제어할 수 있게 됩니다. 만약 이 위임 문장을 지워버리면 IAM 정책으로는 키를 제어할 수 없게 됩니다.</li>
 </ol>
-<p>또 키 정책은 IAM 정책과 달리 <strong>리전 단위</strong>입니다. 같은 리전의 키에만 효과가 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html">[2]</a></sup></p>
+<p>또한 KMS 키는 <strong>리전 단위의 독립적인 리소스</strong>입니다. 한 리전에서 만든 키와 그 키 정책은 오직 해당 리전 내에서만 효력을 발휘합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-policies.html">[2]</a></sup></p>
 
-<h2>봉투 암호화 (개념만)</h2>
-<p><strong>봉투 암호화</strong>는 평문 데이터를 <em>데이터 키</em>로 암호화하고, 그 데이터 키를 다시 다른 키로 암호화하는 방식입니다. KMS 키는 FIPS 140-3 Security Level 3 검증 HSM을 <strong>암호화되지 않은 상태로는 절대 떠나지 않습니다</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/kms-cryptography.html">[3]</a></sup> 그래서 큰 데이터는 KMS로 보내지 않고, KMS에서 받은 데이터 키로 가까운 곳에서 암호화합니다. S3 SSE-KMS의 실제 흐름은 다음과 같습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup></p>
+<h2>봉투 암호화(Envelope Encryption): 왜 데이터 키를 따로 쓸까요?</h2>
+<p><strong>봉투 암호화</strong>란 실제 데이터는 <strong>데이터 키(Data Encryption Key, DEK)</strong>라는 별도의 대칭 키로 암호화하고, 그 데이터 키를 다시 상위의 <strong>KMS 키(Key-encrypting key)</strong>로 감싸서 암호화하는 이중 암호화 구조를 말합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/kms-cryptography.html">[3]</a></sup></p>
+<p>왜 대용량 데이터를 KMS로 직접 보내서 암호화하지 않고 이런 복잡한 방식을 쓸까요?</p>
+<ul>
+  <li><strong>KMS 키의 절대적 보호</strong>: KMS 키는 FIPS 140-3 보안 레벨 3 검증을 받은 AWS의 하드웨어 보안 모듈(HSM) 내부에 영구히 머무르며, <strong>평문 상태로는 절대로 HSM 바깥으로 빠져나오지 않습니다</strong>.</li>
+  <li><strong>네트워크 대역폭과 성능 병목 방지</strong>: 수 기가바이트(GB)에 달하는 큰 파일이나 데이터베이스를 네트워크를 통해 일일이 KMS로 전송하여 암호화/복호화한다면 엄청난 네트워크 병목과 심각한 지연 시간(Latency)이 발생하며, KMS API 호출 제한(Quota)에도 걸리게 됩니다. 따라서 KMS API(Encrypt)는 최대 4KB 크기의 데이터만 직접 암호화하도록 설계되어 있습니다.</li>
+  <li><strong>고성능 로컬 암호화</strong>: 대용량 데이터는 데이터가 존재하는 로컬(예: S3, EBS, 애플리케이션 메모리)에서 빠른 속도로 직접 암호화하고, 오직 아주 작은 크기의 '데이터 키'만 KMS와 주고받음으로써 최고의 보안성과 성능을 동시에 달성합니다.</li>
+</ul>
 
 <figure>
 <svg viewBox="0 0 560 230" role="img" aria-label="봉투 암호화: KMS가 데이터 키를 만들어 평문과 암호화본을 주고, 평문 데이터 키로 데이터를 암호화한 뒤 암호화된 데이터 키를 함께 저장" style="width:100%;height:auto;font-family:var(--sans)">
@@ -58,127 +64,137 @@
   <text x="100" y="48" text-anchor="middle" font-size="13" fill="var(--fg)">AWS KMS (HSM)</text>
   <text x="100" y="70" text-anchor="middle" font-size="12" fill="var(--muted)">KMS 키는 여기 머무름</text>
   <rect x="225" y="20" width="160" height="70" rx="10" fill="none" stroke="var(--fg)"/>
-  <text x="305" y="48" text-anchor="middle" font-size="12" fill="var(--fg)">데이터 키</text>
-  <text x="305" y="70" text-anchor="middle" font-size="12" fill="var(--muted)">평문 + 암호화본</text>
+  <text x="305" y="48" text-anchor="middle" font-size="12" fill="var(--fg)">데이터 키 (DEK)</text>
+  <text x="305" y="70" text-anchor="middle" font-size="12" fill="var(--muted)">평문 키 + 암호화된 키</text>
   <line x1="185" y1="55" x2="221" y2="55" stroke="var(--muted)" marker-end="url(#ah8)"/>
   <text x="203" y="110" text-anchor="middle" font-size="11" fill="var(--muted)">① GenerateDataKey</text>
   <rect x="15" y="135" width="170" height="50" rx="10" fill="none" stroke="var(--fg)"/>
   <text x="100" y="165" text-anchor="middle" font-size="13" fill="var(--fg)">평문 데이터</text>
   <rect x="405" y="105" width="145" height="80" rx="10" fill="var(--ok-soft)" stroke="var(--ok)"/>
-  <text x="477" y="128" text-anchor="middle" font-size="12" fill="var(--fg)">저장되는 것</text>
+  <text x="477" y="128" text-anchor="middle" font-size="12" fill="var(--fg)">스토리지 저장 형태</text>
   <text x="477" y="150" text-anchor="middle" font-size="12" fill="var(--fg)">암호화된 데이터</text>
   <text x="477" y="170" text-anchor="middle" font-size="12" fill="var(--fg)">+ 암호화된 데이터 키</text>
   <line x1="385" y1="70" x2="430" y2="101" stroke="var(--muted)" marker-end="url(#ah8)"/>
   <line x1="185" y1="160" x2="401" y2="150" stroke="var(--muted)" marker-end="url(#ah8)"/>
-  <text x="290" y="145" text-anchor="middle" font-size="11" fill="var(--muted)">② 평문 데이터 키로 암호화</text>
-  <text x="280" y="215" text-anchor="middle" font-size="11" fill="var(--muted)">③ 평문 데이터 키는 사용 후 메모리에서 삭제 · 읽을 때는 암호화된 데이터 키를 KMS에 보내 Decrypt</text>
+  <text x="290" y="145" text-anchor="middle" font-size="11" fill="var(--muted)">② 평문 데이터 키로 데이터 암호화</text>
+  <text x="280" y="215" text-anchor="middle" font-size="11" fill="var(--muted)">③ 평문 데이터 키는 메모리에서 파기 · 읽을 땐 암호화된 키를 KMS로 보내 복호화(Decrypt)</text>
 </svg>
 </figure>
-<p>그래서 SSE-KMS 객체를 올리려면 키에 대한 <code>kms:GenerateDataKey</code>, 내려받으려면 <code>kms:Decrypt</code> 권한이 필요합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup> "S3 권한은 있는데 AccessDenied"라면 KMS 쪽 권한을 의심하세요.</p>
 
-<h2>키 교체와 삭제</h2>
+<p>S3 SSE-KMS의 실제 암호화 및 복호화 흐름을 살펴보면 이해가 훨씬 명확해집니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup></p>
+<ol>
+  <li><strong>업로드 시점</strong>: 클라이언트가 S3에 데이터를 올리면, S3 서비스가 KMS에 <code>kms:GenerateDataKey</code> API를 호출합니다. KMS는 평문 데이터 키와 암호화된 데이터 키 사본을 함께 S3에 전달합니다. S3는 평문 데이터 키로 객체 데이터를 로컬에서 초고속으로 암호화한 뒤, <strong>평문 데이터 키를 메모리에서 즉시 영구 삭제</strong>합니다. 그리고 <strong>[암호화된 객체]</strong>와 <strong>[암호화된 데이터 키]</strong>를 디스크에 함께 저장합니다.</li>
+  <li><strong>다운로드 시점</strong>: 사용자가 S3 객체를 요청하면, S3는 저장되어 있던 [암호화된 데이터 키]를 꺼내 KMS에 <code>kms:Decrypt</code> API를 호출합니다. KMS는 내부의 KMS 키로 이를 복호화하여 평문 데이터 키를 S3에 돌려줍니다. S3는 이 키로 암호화된 데이터를 복호화하여 사용자에게 전달한 뒤, 평문 키를 메모리에서 즉시 지웁니다.</li>
+</ol>
+<p>따라서 SSE-KMS로 암호화된 S3 버킷에 객체를 업로드하려면 <code>kms:GenerateDataKey</code> 권한이 필요하고, 객체를 다운로드하려면 <code>kms:Decrypt</code> 권한이 반드시 필요합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup> 시험 문제에서 "S3 버킷 정책과 IAM 정책에는 분명 <code>s3:GetObject</code> 권한이 있는데 <code>AccessDenied</code> 오류가 발생한다"는 상황이 나오면, 십중팔구 해당 객체를 암호화한 <strong>KMS 키에 대한 <code>kms:Decrypt</code> 권한이 누락</strong>된 것입니다.</p>
+
+<h2>KMS 키 교체(Rotation)와 삭제 수명 주기</h2>
+<p>보안 규정 준수(Compliance)를 위해서는 주기적으로 암호화 키를 교체해야 합니다. KMS의 키 교체와 삭제 메커니즘은 다음과 같이 운영됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html">[5]</a></sup></p>
 <table>
-<tr><th>항목</th><th>내용</th></tr>
-<tr><td>자동 교체</td><td>고객 관리형 키에서 <strong>선택</strong>. 켜면 기본 매년(365일), 교체 주기를 직접 지정할 수도 있음. 즉시 필요하면 <strong>온디맨드 교체</strong><sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
-<tr><td>무엇이 바뀌나</td><td><strong>키 자료(key material)만</strong>. 키 ID·ARN·정책은 그대로이고, 예전 키 자료는 보관되어 기존 암호문을 자동으로 복호화. 코드 변경도, 데이터 재암호화도 없음<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
-<tr><td>자동 교체 불가</td><td>비대칭 키, HMAC 키, 사용자 지정 키 스토어의 키 → <strong>수동 교체</strong>(새 키를 만들고 별칭을 옮김). 가져온 키 자료는 온디맨드 교체만 지원<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
-<tr><td>AWS 관리형 키</td><td>매년 자동 교체. 켜거나 끌 수 없음<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
-<tr><td>삭제</td><td>고객 관리형 키만 삭제 예약 가능. <strong>대기 기간 7–30일(기본 30일)</strong>, 그 안에는 취소 가능. 삭제되면 그 키로 암호화한 데이터는 <strong>복구 불가</strong>. 확신이 없으면 삭제 대신 <strong>비활성화</strong><sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html">[5]</a></sup></td></tr>
+<tr><th>구분</th><th>상세 동작 및 원리</th></tr>
+<tr><td>자동 키 교체 (선택)</td><td>고객 관리형 대칭 키에서 활성화 여부를 선택할 수 있습니다. 활성화하면 기본 365일(1년)마다 자동 교체되며, 필요에 따라 90일~2,560일 사이의 주기를 직접 지정할 수 있습니다. 즉시 교체가 필요한 경우 <strong>온디맨드 키 교체</strong>를 실행할 수도 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
+<tr><td>교체 시 바뀌는 것</td><td>KMS 내부의 <strong>백그라운드 키 자료(Key Material)만 새로 생성</strong>됩니다. 중요한 점은 <strong>키 ID, 키 ARN, 키 별칭(Alias), 키 정책은 전혀 바뀌지 않는다</strong>는 사실입니다. 이전 세대의 키 자료는 KMS 내부에 영구 보관되므로, 과거에 암호화된 데이터도 아무런 추가 조치 없이 자동으로 복호화됩니다. 따라서 <strong>애플리케이션 코드를 수정하거나 기존 데이터를 재암호화할 필요가 전혀 없습니다</strong>.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
+<tr><td>자동 교체 미지원 대상</td><td>비대칭 KMS 키, HMAC 키, 사용자가 직접 가져온 키 자료(Imported Key Material) 등은 자동 교체를 지원하지 않습니다. 이 경우 새 키를 생성하고 기존 키 별칭(Alias)을 새 키로 가리키도록 변경하는 <strong>수동 교체(Manual Rotation)</strong> 방식을 사용해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
+<tr><td>AWS 관리형 키의 교체</td><td>AWS가 1년(365일)마다 100% 자동으로 교체합니다. 고객이 이 주기를 끄거나 변경할 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html">[4]</a></sup></td></tr>
+<tr><td>키 삭제 절차와 대기 기간</td><td>고객 관리형 키는 실수로 인한 즉각적인 데이터 영구 손실을 방지하기 위해 <strong>즉시 삭제가 불가능</strong>합니다. 반드시 <strong>7일~30일(기본값 30일)의 대기 기간을 설정하여 삭제를 예약</strong>해야 합니다. 대기 기간 중에는 언제든 삭제를 취소할 수 있습니다. 대기 기간이 끝나 키가 완전히 삭제되면, 해당 키로 암호화된 모든 데이터는 <strong>절대 복구할 수 없습니다</strong>. 따라서 영구 삭제에 확신이 없을 때는 삭제 예약 대신 <strong>키를 비활성화(Disable)</strong>하여 이상 여부를 먼저 모니터링하는 것이 권장됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/deleting-keys.html">[5]</a></sup></td></tr>
 </table>
 
-<h2>S3 암호화 옵션</h2>
-<p>2023년 1월 5일부터 S3에 새로 올라오는 모든 객체는 추가 비용 없이 <strong>SSE-S3</strong>로 자동 암호화됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup> 시험은 "그 이상이 필요할 때 무엇을 고르나"를 묻습니다.</p>
+<h2>S3 암호화 옵션 완벽 정리</h2>
+<p>2023년 1월부터 Amazon S3에 업로드되는 모든 새로운 객체는 추가 비용 없이 기본적으로 <strong>SSE-S3(256비트 AES)</strong> 방식으로 자동 암호화됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup> 따라서 시험에서는 "기본 암호화 이상의 엄격한 보안 요건이 주어졌을 때 어떤 방식을 선택해야 하는가?"를 집중적으로 평가합니다.</p>
 <table>
-<tr><th>옵션</th><th>키를 누가</th><th>고를 때</th></tr>
-<tr><td><strong>SSE-S3</strong></td><td>S3가 관리</td><td>기본값. 별도 요구 사항이 없을 때</td></tr>
-<tr><td><strong>SSE-KMS</strong></td><td>KMS 키 (AWS 관리형 또는 고객 관리형)</td><td>키 정책으로 <strong>접근 통제</strong>, CloudTrail로 키 사용 <strong>감사</strong>, 교체·비활성화 직접 제어.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup> 키는 버킷과 같은 리전이어야 함</td></tr>
-<tr><td><strong>DSSE-KMS</strong></td><td>KMS 키</td><td>이중 계층 서버 측 암호화가 요구될 때<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup></td></tr>
-<tr><td><strong>SSE-C</strong></td><td>고객이 요청마다 키 제공</td><td>S3는 키를 <strong>저장하지 않음</strong>. HTTPS 필수, 키를 잃으면 객체도 잃음. 2026년 4월부터 새 버킷에서 기본 비활성화<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerSideEncryptionCustomerKeys.html">[8]</a></sup></td></tr>
-<tr><td><strong>클라이언트 측</strong></td><td>고객이 직접 암호화 후 업로드</td><td>AWS를 포함한 누구에게도 평문이 노출되면 안 될 때. S3는 이미 암호화된 객체를 받기만 함<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingClientSideEncryption.html">[9]</a></sup></td></tr>
+<tr><th>암호화 옵션</th><th>키 관리 주체</th><th>핵심 특징 및 선택 기준 (시험 키워드)</th></tr>
+<tr><td><strong>SSE-S3</strong> (서버 측 암호화)</td><td>Amazon S3가 완전 관리</td><td>S3의 기본 암호화 설정. 추가 비용이나 운영 부담 없이 기본적인 저장 데이터 암호화 규정을 충족할 때 선택</td></tr>
+<tr><td><strong>SSE-KMS</strong> (KMS 서버 측 암호화)</td><td>AWS KMS 키 (AWS 관리형 또는 고객 관리형)</td><td>키 정책을 통한 <strong>접근 통제</strong>, CloudTrail을 통한 <strong>키 사용 내역 감사</strong>, 사용자가 직접 주도하는 <strong>키 교체 및 비활성화</strong>가 필요할 때 선택.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup> KMS 키는 S3 버킷과 반드시 동일한 리전에 있어야 함</td></tr>
+<tr><td><strong>DSSE-KMS</strong> (이중 계층 KMS 암호화)</td><td>AWS KMS 키</td><td>금융이나 국방 등 매우 엄격한 규정 준수를 위해 스토리지 계층에서 서로 다른 키로 <strong>이중(Dual-layer) 암호화</strong>를 의무화할 때 선택<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup></td></tr>
+<tr><td><strong>SSE-C</strong> (고객 제공 키 암호화)</td><td>고객이 요청마다 키를 HTTP 헤더로 전송</td><td>암호화 연산은 S3 서버가 수행하지만, S3는 암호화 키를 <strong>절대 저장하지 않음</strong>. 통신 구간 도청을 막기 위해 반드시 HTTPS 통신 필수. 만약 고객이 키를 분실하면 해당 객체는 영원히 복구 불가. (2026년 4월부터 신규 버킷 기본 비활성화)<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerSideEncryptionCustomerKeys.html">[8]</a></sup></td></tr>
+<tr><td><strong>클라이언트 측 암호화</strong> (Client-Side)</td><td>고객이 업로드 전 자체 환경에서 암호화</td><td><strong>AWS를 포함한 그 누구에게도 원본 평문 데이터가 노출되어서는 안 될 때</strong> 선택. 애플리케이션 코드가 데이터를 암호화한 뒤 S3에 올리므로, S3는 이미 암호화된 불투명한 바이트 덩어리만 수신하여 보관함<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingClientSideEncryption.html">[9]</a></sup></td></tr>
 </table>
-<p>SSE-KMS 요청이 많아 KMS 비용이 걱정되면 <strong>S3 Bucket Key</strong>를 켭니다. S3에서 KMS로 가는 요청을 줄여 KMS 요청 비용을 최대 99%까지 줄일 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup> 또 기본 암호화 설정을 SSE-KMS로 바꿔도 <strong>기존 객체는 그대로</strong>입니다. 기존 객체를 바꾸려면 S3 Batch Operations로 복사해 다시 씁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup></p>
+<p><strong>비용 최적화 팁 (S3 Bucket Key)</strong>: SSE-KMS를 사용할 때 객체 요청 수가 수백만~수억 건에 달하면 KMS API 호출 비용이 크게 증가할 수 있습니다. 이때 <strong>S3 Bucket Key</strong> 기능을 활성화하면, S3가 버킷 레벨의 임시 키를 생성하여 KMS 호출 횟수를 획기적으로 줄여줌으로써 <strong>KMS 요청 비용을 최대 99%까지 절감</strong>할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html">[7]</a></sup><br>
+<strong>기존 데이터 처리 팁</strong>: 버킷의 기본 암호화 설정을 SSE-KMS로 변경하더라도, <strong>이전에 이미 업로드되어 있던 기존 객체들은 자동으로 소급 암호화되지 않습니다</strong>. 기존 객체까지 새로운 암호화 설정으로 전환하려면 <strong>S3 Batch Operations</strong>를 실행하여 객체를 자기 자신 위치로 복사(Copy)하는 작업을 수행해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html">[6]</a></sup></p>
 
-<h2>EBS와 RDS: "나중에 켜기"가 안 된다</h2>
+<h2>EBS와 RDS: "나중에 클릭 한 번으로 켜기"가 불가능한 이유</h2>
+<p>EBS 볼륨과 RDS 데이터베이스 인스턴스는 처음 생성할 때 암호화를 켜지 않았다면, 나중에 실행 중인 상태에서 클릭 한 번으로 암호화를 켤 수 없습니다. 이미 디스크 블록 레벨에 평문으로 기록된 데이터를 실시간으로 인플레이스(In-place) 암호화할 수 없기 때문입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-encryption.html">[11]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></p>
 <table>
-<tr><th></th><th>EBS</th><th>RDS</th></tr>
-<tr><td>암호화 범위</td><td>저장 데이터 + 인스턴스와 볼륨 사이 전송 중 데이터, 스냅샷, 그 스냅샷으로 만든 볼륨<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-encryption.html">[11]</a></sup></td><td>스토리지, 로그, 자동 백업, 읽기 전용 복제본, 스냅샷<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></td></tr>
-<tr><td>기존 리소스 암호화</td><td>직접 불가. <strong>스냅샷 → 그 스냅샷으로 암호화된 새 볼륨</strong><sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-encryption.html">[11]</a></sup></td><td>생성 시에만 가능. <strong>스냅샷 → 암호화된 사본 → 그 사본에서 복원</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></td></tr>
-<tr><td>암호화 해제</td><td>불가</td><td>불가</td></tr>
-<tr><td>강제</td><td><strong>기본 암호화</strong>: 리전별 설정. 기존 볼륨에는 영향 없음<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/encryption-by-default.html">[12]</a></sup></td><td>읽기 전용 복제본은 원본과 암호화 상태가 같아야 함. 다른 리전으로 복사하면 대상 리전의 KMS 키를 지정<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></td></tr>
+<tr><th>비교 항목</th><th>Amazon EBS 볼륨</th><th>Amazon RDS DB 인스턴스</th></tr>
+<tr><td>암호화 보호 범위</td><td>볼륨에 저장된 데이터, 인스턴스와 볼륨 간 전송 데이터, 해당 볼륨에서 생성된 스냅샷, 그 스냅샷으로 생성한 모든 파생 볼륨<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-encryption.html">[11]</a></sup></td><td>기본 DB 스토리지, 트랜잭션 로그, 자동 백업 파일, 읽기 전용 복제본(Read Replica), DB 스냅샷 전체<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></td></tr>
+<tr><td>기존 미암호화 리소스 암호화 절차</td><td>1. 기존 볼륨의 스냅샷 생성<br>2. <strong>스냅샷을 복사하면서 암호화 옵션 활성화</strong><br>3. 암호화된 스냅샷으로 새로운 암호화 볼륨 생성 후 교체<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/ebs-encryption.html">[11]</a></sup></td><td>1. DB 인스턴스의 스냅샷 생성<br>2. <strong>스냅샷을 복사하면서 암호화 옵션(KMS 키) 활성화</strong><br>3. 암호화된 스냅샷 사본에서 새로운 DB 인스턴스 복원<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></td></tr>
+<tr><td>암호화 해제 가능 여부</td><td>한 번 암호화된 볼륨은 암호화 해제 불가</td><td>한 번 암호화된 DB 인스턴스는 암호화 해제 불가</td></tr>
+<tr><td>강제 및 제약 사항</td><td><strong>계정 단위 기본 암호화</strong>(Encryption by default) 설정 가능. 켜면 이후 생성되는 모든 신규 볼륨이 자동 암호화됨 (기존 볼륨 소급 적용 X)<sup class="cite"><a href="https://docs.aws.amazon.com/ebs/latest/userguide/encryption-by-default.html">[12]</a></sup></td><td>읽기 전용 복제본은 반드시 원본 DB와 암호화 상태가 동일해야 함. 스냅샷을 다른 리전으로 복사할 때는 대상 리전의 KMS 키를 새로 지정해야 함<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.Encryption.html">[13]</a></sup></td></tr>
 </table>
 
-<h2>ACM: 전송 중 암호화의 인증서</h2>
-<p><strong>AWS Certificate Manager(ACM)</strong>는 퍼블릭·프라이빗 SSL/TLS 인증서의 생성, 저장, 갱신을 대신 처리합니다. 외부 CA에서 받은 인증서를 가져올(import) 수도 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html">[14]</a></sup></p>
+<h2>ACM (AWS Certificate Manager): 전송 중 암호화를 위한 인증서 관리</h2>
+<p><strong>AWS Certificate Manager(ACM)</strong>는 웹 애플리케이션의 SSL/TLS 퍼블릭 및 프라이빗 디지털 인증서를 손쉽게 요청, 발급, 배포, 그리고 자동 갱신해 주는 완전관리형 서비스입니다. 타사 외부 CA(Certificate Authority)에서 구입한 인증서를 가져와(Import) 등록할 수도 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html">[14]</a></sup></p>
 <ul>
-  <li><strong>붙는 곳</strong>: Elastic Load Balancing, CloudFront, API Gateway(사용자 지정 도메인) 등 통합 서비스.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/acm-services.html">[15]</a></sup> EC2 인스턴스에 ACM 관리형 인증서를 직접 붙이려면 Nitro Enclave가 필요하므로, 보통은 앞단 ALB나 CloudFront에서 TLS를 종료합니다.</li>
-  <li><strong>리전 리소스</strong>: 리전 간 복사 불가. 그리고 <strong>CloudFront에 쓰려면 반드시 미국 동부(버지니아 북부, us-east-1)</strong>에서 요청하거나 가져와야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html">[14]</a></sup></li>
-  <li><strong>자동 갱신</strong>: DNS 검증으로 발급한 인증서는 AWS 서비스에서 사용 중이고 검증용 CNAME 레코드가 남아 있으면 완전 자동으로 갱신됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/dns-renewal-validation.html">[17]</a></sup> <strong>가져온 인증서는 관리형 갱신 대상이 아닙니다.</strong><sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/managed-renewal.html">[16]</a></sup> 만료 감시와 재가져오기는 고객 책임이며, EventBridge로 만료 임박 알림을 받을 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/import-certificate.html">[18]</a></sup></li>
+  <li><strong>인증서가 연결되는 대상</strong>: Application Load Balancer(ALB), Network Load Balancer(NLB), CloudFront 배포, API Gateway(사용자 지정 도메인) 등 AWS 통합 서비스의 엔드포인트에 직접 바인딩됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/acm-services.html">[15]</a></sup> ACM 퍼블릭 인증서의 개인 키는 외부로 내보낼(Export) 수 없으므로, 개별 백엔드 EC2 인스턴스에 직접 설치하는 대신 앞단의 ALB나 CloudFront에서 TLS 핸드셰이크를 종료(SSL Termination)하는 아키텍처가 표준입니다.</li>
+  <li><strong>리전 리소스의 특성과 CloudFront의 필수 규칙</strong>: ACM 인증서는 특정 리전에 귀속되며 다른 리전으로 복사할 수 없습니다. 특히 시험에서 가장 중요한 규칙: <strong>글로벌 엣지 서비스인 Amazon CloudFront에 사용자 지정 도메인용 HTTPS 인증서를 적용하려면, 반드시 미국 동부(버지니아 북부, us-east-1) 리전의 ACM에서 인증서를 발급받거나 가져와야 합니다.</strong><sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html">[14]</a></sup></li>
+  <li><strong>자동 갱신(Managed Renewal)의 조건과 한계</strong>: ACM에서 DNS 검증 방식으로 발급받은 인증서는 AWS 통합 서비스에서 실제로 사용 중이고 DNS CNAME 검증 레코드가 유지되는 한, 만료 60일 전부터 <strong>100% 완전 자동으로 갱신</strong>됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/dns-renewal-validation.html">[17]</a></sup> 하지만 <strong>외부 CA에서 직접 가져온 인증서(Imported Certificate)는 ACM이 자동으로 갱신할 수 없습니다.</strong><sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/managed-renewal.html">[16]</a></sup> 가져온 인증서의 만료일을 추적하고 외부에서 재발급받아 다시 가져오는 것은 고객의 책임이며, 만료 임박 알림은 Amazon EventBridge와 CloudWatch 경보를 연동하여 구성해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/acm/latest/userguide/import-certificate.html">[18]</a></sup></li>
 </ul>
 
-<h2>KMS vs CloudHSM: 언제 무엇을</h2>
+<h2>KMS vs CloudHSM: 언제 무엇을 선택해야 할까?</h2>
+<p>시험에서 전용 하드웨어 보안 장비와 관련된 문제가 나오면 KMS와 CloudHSM의 명확한 차이점을 파악해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/cloudhsm/latest/userguide/introduction.html">[19]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-store-overview.html">[20]</a></sup></p>
 <table>
-<tr><th></th><th>AWS KMS</th><th>AWS CloudHSM</th></tr>
-<tr><td>HSM</td><td>AWS가 운영하는 FIPS 140-3 Level 3 검증 HSM 플릿<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-store-overview.html">[20]</a></sup></td><td><strong>단일 테넌트</strong> HSM. FIPS 모드 클러스터는 FIPS 140-2 또는 140-3 Level 3 검증<sup class="cite"><a href="https://docs.aws.amazon.com/cloudhsm/latest/userguide/introduction.html">[19]</a></sup></td></tr>
-<tr><td>사용자·권한</td><td>IAM + 키 정책</td><td><strong>고객이 직접</strong> HSM 사용자 관리(IAM 바깥)<sup class="cite"><a href="https://docs.aws.amazon.com/cloudhsm/latest/userguide/introduction.html">[19]</a></sup></td></tr>
-<tr><td>운영 부담</td><td>낮음. AWS 서비스와 통합</td><td>높음. 가용성·확장도 고객 책임</td></tr>
-<tr><td>고르는 신호</td><td>"관리형", "AWS 서비스 통합", "최소 운영 오버헤드"</td><td>"단일 테넌트 HSM", "키를 고객이 독점 통제", PKCS #11·JCE·CNG 애플리케이션 이전<sup class="cite"><a href="https://docs.aws.amazon.com/cloudhsm/latest/userguide/introduction.html">[19]</a></sup></td></tr>
+<tr><th>비교 항목</th><th>AWS KMS</th><th>AWS CloudHSM</th></tr>
+<tr><td>기반 인프라</td><td>AWS가 중앙에서 멀티테넌트로 공유 운영하는 FIPS 140-3 Level 3 검증 HSM 하드웨어 풀<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-store-overview.html">[20]</a></sup></td><td>고객 전용 VPC 내에 프로비저닝되는 <strong>단일 테넌트(Single-tenant) 전용 HSM 어플라이언스</strong>. FIPS 140-2 / 140-3 Level 3 검증<sup class="cite"><a href="https://docs.aws.amazon.com/cloudhsm/latest/userguide/introduction.html">[19]</a></sup></td></tr>
+<tr><td>사용자 및 권한 제어</td><td>AWS IAM 정책 및 KMS 키 정책과 완벽히 통합되어 권한 제어</td><td><strong>고객이 HSM 어플라이언스의 암호화 사용자(CU/CO)를 직접 관리</strong>. AWS 직원은 물론 IAM으로도 HSM 내부 키에 접근 불가<sup class="cite"><a href="https://docs.aws.amazon.com/cloudhsm/latest/userguide/introduction.html">[19]</a></sup></td></tr>
+<tr><td>운영 및 관리 부담</td><td>매우 낮음. 고가용성, 내구성, 패치, 확장을 AWS가 완전 관리</td><td>매우 높음. 고가용성 클러스터 구성, 백업, 장애 조치 관리를 고객이 직접 담당</td></tr>
+<tr><td>핵심 선택 신호 (시나리오 키워드)</td><td>"완전관리형 암호화", "AWS 서비스와의 완벽한 기본 통합", "최소한의 운영 오버헤드"</td><td>"단일 테넌트 전용 하드웨어 필요", "기업이 암호화 키를 배타적으로 독점 통제", <strong>PKCS #11, JCE, Microsoft CNG</strong> 표준 인터페이스를 사용하는 기존 레거시 앱 이전<sup class="cite"><a href="https://docs.aws.amazon.com/cloudhsm/latest/userguide/introduction.html">[19]</a></sup></td></tr>
 </table>
-<p>중간 지대도 있습니다. KMS <strong>사용자 지정 키 스토어</strong>(CloudHSM 키 스토어)는 KMS 인터페이스를 쓰면서 키 자료는 내 CloudHSM 클러스터에 둡니다. AWS는 단일 테넌트 HSM 보관이 규제로 명시된 경우에만 고려하라고 권하며, 대칭 키만 지원하고 자동 교체가 안 됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-store-overview.html">[20]</a></sup></p>
+<p>두 서비스의 절충안으로 <strong>KMS 사용자 지정 키 스토어(Custom Key Store with CloudHSM)</strong>가 있습니다. 이는 애플리케이션 인터페이스는 KMS API를 그대로 사용하면서, 실제 키 자료는 고객 소유의 CloudHSM 클러스터 내부에 생성·보관하는 방식입니다. 하지만 대칭 키만 지원하고 자동 교체가 지원되지 않으며 지연 시간이 늘어날 수 있으므로, 엄격한 법적·규제적 단일 테넌트 요건이 명시된 경우에만 제한적으로 검토해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/kms/latest/developerguide/key-store-overview.html">[20]</a></sup></p>
 
 <div class="callout">
-<p class="label">시험 단골</p>
-<p><strong>"키 사용 감사" / "키 교체 직접 통제"</strong> → SSE-KMS + 고객 관리형 키 · <strong>"추가 요구 없음, 최소 비용"</strong> → SSE-S3(기본값) · <strong>"AWS도 평문을 보면 안 됨"</strong> → 클라이언트 측 암호화 · <strong>"교차 계정으로 암호화된 데이터 공유"</strong> → 고객 관리형 키 + 키 정책에 상대 계정 · <strong>"기존 암호화 안 된 EBS/RDS"</strong> → 스냅샷 → 암호화 사본 → 복원 · <strong>"CloudFront에서 ACM 인증서가 안 보임"</strong> → us-east-1에서 요청 · <strong>"단일 테넌트 HSM"</strong> → CloudHSM · <strong>"HTTPS만 허용"</strong> → 버킷 정책 <code>aws:SecureTransport</code></p>
+<p class="label">시험에 자주 나오는 핵심 패턴</p>
+<p><strong>"키 사용 내역 감사 + 키 교체 일정 회사가 직접 통제"</strong> → SSE-KMS + 고객 관리형 키 · <strong>"추가 요건 없이 최소 비용으로 기본 암호화"</strong> → SSE-S3(기본값) · <strong>"AWS를 포함한 제3자에게 평문 절대 노출 금지"</strong> → 클라이언트 측 암호화 · <strong>"다른 AWS 계정과 암호화된 S3 객체/스냅샷 공유"</strong> → 고객 관리형 키 생성 후 키 정책에 상대 계정 ID 허용 · <strong>"기존 암호화되지 않은 EBS/RDS 암호화"</strong> → 스냅샷 생성 → 복사하면서 암호화 활성화 → 암호화된 스냅샷에서 새 볼륨/DB 복원 · <strong>"CloudFront 배포 설정 시 ACM 인증서가 보이지 않음"</strong> → us-east-1(버지니아 북부) 리전에서 인증서 발급 · <strong>"단일 테넌트 HSM, 독점적 키 제어, PKCS #11 호환"</strong> → AWS CloudHSM · <strong>"S3 버킷에 HTTPS 접속만 강제"</strong> → 버킷 정책에서 <code>aws:SecureTransport: "false"</code> 요청에 대해 <code>Deny</code> 선언</p>
 </div>
 
-<h2>연습</h2>
-<p>기억으로 푸세요. 보기 길이는 모두 같게 맞춰 두었습니다.</p>
+<h2>실전 연습 문제</h2>
+<p>학습한 내용을 바탕으로 문제를 풀어보세요. 보기 길이는 실제 시험처럼 균형 있게 구성되어 있습니다.</p>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q1. (시험형) 금융 회사가 S3에 보고서를 저장합니다. 규정상 암호화 키의 사용 내역을 감사할 수 있어야 하고, 키 교체 일정과 비활성화를 회사가 직접 통제해야 합니다. 운영 부담이 가장 적은 방법은?</p>
+  <p class="q-title">Q1. (시험형) 한 금융 회사가 규정 준수 보고서를 Amazon S3 버킷에 저장하고 있습니다. 금융 규정상 암호화 키의 모든 사용 내역을 완벽히 감사할 수 있어야 하며, 키 교체 주기와 특정 시점의 키 비활성화를 회사가 직접 통제할 수 있어야 합니다. 운영 오버헤드를 최소화하면서 이러한 규제 요건을 충족하는 아키텍처는 무엇인가요?</p>
   <div class="options">
     <button class="opt">기본값인 SSE-S3 암호화를 그대로 사용함</button>
     <button class="opt">고객 관리형 KMS 키로 SSE-KMS 적용</button>
     <button class="opt">요청마다 자체 키를 보내는 SSE-C 사용함</button>
     <button class="opt">업로드 전에 애플리케이션 코드로 직접 암호화</button>
   </div>
-  <div class="feedback"><p>고객 관리형 키는 키 정책·교체·비활성화를 직접 통제하고 CloudTrail로 사용을 감사할 수 있습니다. SSE-S3는 키를 S3가 관리하므로 통제 요구를 충족하지 못합니다. SSE-C와 클라이언트 측 암호화는 통제는 되지만 키 보관·교체를 전부 회사가 떠안아 "운영 부담 최소"에 어긋납니다.</p></div>
+  <div class="feedback"><p>고객 관리형 KMS 키(Customer Managed Key)를 사용하면 CloudTrail을 통해 키 사용 내역을 완전히 감사할 수 있고, 키 정책 관리, 교체 주기 설정, 긴급 비활성화(Disable)를 회사가 직접 통제할 수 있습니다. SSE-S3는 키를 S3가 관리하므로 감사 및 통제 요구를 만족하지 못합니다. SSE-C나 클라이언트 측 암호화는 통제는 가능하지만 키 보관, 버전 관리, 교체 작업을 회사가 전적으로 구현해야 하므로 '운영 오버헤드 최소화'에 어긋납니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q2. (0002 복습) 같은 계정의 역할 <code>AppRole</code>에 고객 관리형 키에 대한 <code>kms:Decrypt</code>를 허용하는 자격 증명 기반 정책이 있습니다. 그런데 키 정책에는 AppRole도, 계정에 권한을 위임하는 문장도 없습니다. AppRole이 Decrypt를 호출합니다.</p>
+  <p class="q-title">Q2. (0002 복습 연계) 동일한 AWS 계정 내부의 IAM 역할 <code>AppRole</code>에 고객 관리형 KMS 키에 대한 <code>kms:Decrypt</code>를 허용하는 IAM 정책이 연결되어 있습니다. 하지만 해당 KMS 키의 키 정책에는 <code>AppRole</code>도, 계정 전체에 권한을 위임하는 문장도 누락되어 있습니다. <code>AppRole</code>이 해당 키로 암호화된 데이터를 복호화하려고 시도하면 어떻게 되나요?</p>
   <div class="options">
     <button class="opt">허용 · 같은 계정이라 한쪽만 허용하면 됨</button>
     <button class="opt">허용 · IAM 정책이 키 정책보다 우선함</button>
     <button class="opt">거부 · 키 정책이 직접 허용해야만 하므로</button>
     <button class="opt">거부 · 명시적 거부 문장이 적용되었으므로</button>
   </div>
-  <div class="feedback"><p>KMS 키 정책은 0002 규칙 4(같은 계정 합집합)의 예외입니다. 키 정책이 허용하지 않으면 IAM 정책의 Allow는 효과가 없습니다. 기본 키 정책처럼 계정에 위임하는 문장이 있어야 IAM 정책이 비로소 작동합니다. Deny 문장은 없으니 "명시적 거부"는 아닙니다.</p></div>
+  <div class="feedback"><p>KMS 키 정책은 레슨 0002에서 다룬 '동일 계정 합집합 허용 규칙'의 가장 대표적인 예외입니다. KMS 키 정책이 직접 허용하거나 계정 루트에 위임하지 않으면, IAM 정책의 Allow는 아무런 효과가 없습니다. 키 정책의 허가가 없으므로 기본 거부(Implicit Deny)에 의해 요청이 거부됩니다. 명시적 거부(Explicit Deny) 문장이 존재해서 거부된 것은 아니므로 네 번째 보기는 틀립니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q3. (시험형) 팀이 eu-west-2 리전에서 ACM 퍼블릭 인증서를 발급받았습니다. CloudFront 배포에 사용자 지정 도메인 HTTPS를 설정하려는데 인증서 목록에 그 인증서가 보이지 않습니다. 해결책은?</p>
+  <p class="q-title">Q3. (시험형) 한 개발팀이 eu-west-2(런던) 리전의 ACM에서 퍼블릭 SSL/TLS 인증서를 성공적으로 발급받았습니다. 이후 전 세계 사용자를 위해 Amazon CloudFront 배포를 생성하고 사용자 지정 도메인 HTTPS를 적용하려 했으나, 인증서 선택 드롭다운 목록에 발급받은 인증서가 나타나지 않습니다. 이 문제를 해결하기 위한 올바른 방법은 무엇인가요?</p>
   <div class="options">
     <button class="opt">인증서를 CloudFront 리전으로 복사</button>
     <button class="opt">인증서를 내보내 오리진 EC2에 직접 설치</button>
     <button class="opt">Global Accelerator로 전환함</button>
     <button class="opt">us-east-1에서 인증서를 새로 요청함</button>
   </div>
-  <div class="feedback"><p>CloudFront에서 ACM 인증서를 쓰려면 미국 동부(버지니아 북부) 리전에서 요청하거나 가져와야 합니다. ACM 인증서는 리전 리소스라 리전 간 복사가 불가능하므로 "복사" 보기는 틀립니다.</p></div>
+  <div class="feedback"><p>Amazon CloudFront는 글로벌 서비스이지만, 사용자 지정 도메인에 연결할 SSL/TLS 인증서는 기술적 구조상 반드시 미국 동부(버지니아 북부, us-east-1) 리전의 ACM에서 발급받거나 해당 리전으로 가져와야 합니다. 또한 ACM 인증서는 특정 리전에 종속된 리소스이므로 다른 리전으로 복사하는 기능 자체가 지원되지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q4. (시험형) 운영 중인 RDS for MySQL DB 인스턴스가 암호화 없이 생성되었습니다. 감사 지적으로 저장 데이터를 암호화해야 합니다. 올바른 절차는?</p>
+  <p class="q-title">Q4. (시험형) 현재 프로덕션 환경에서 실행 중인 Amazon RDS for MySQL DB 인스턴스가 생성 당시 암호화되지 않은 상태로 프로비저닝되었습니다. 내부 보안 감사 지적으로 인해 저장 데이터를 반드시 암호화해야 합니다. 다운타임과 데이터 손실을 최소화하면서 이 요구사항을 충족하는 올바른 절차는 무엇인가요?</p>
   <div class="options">
     <button class="opt">스냅샷 생성 후 암호화된 사본에서 복원함</button>
     <button class="opt">인스턴스 수정 화면에서 암호화 옵션을 켬</button>
     <button class="opt">암호화된 읽기 전용 복제본을 만들어 승격</button>
     <button class="opt">KMS 키 정책에 RDS ARN을 추가함</button>
   </div>
-  <div class="feedback"><p>RDS는 생성 시에만 암호화할 수 있습니다. 대신 암호화되지 않은 스냅샷의 <em>암호화된 사본</em>은 만들 수 있으므로, 그 사본에서 복원하면 됩니다. 읽기 전용 복제본은 원본과 암호화 상태가 같아야 해서 "암호화된 복제본" 보기는 불가능한 구성입니다.</p></div>
+  <div class="feedback"><p>Amazon RDS는 이미 생성된 기존 인스턴스에 사후 암호화를 직접 켤 수 없습니다. 올바른 해결 절차는 (1) 기존 DB 인스턴스의 스냅샷을 생성하고, (2) 그 스냅샷을 복사하면서 KMS 암호화 옵션을 활성화하여 '암호화된 스냅샷 사본'을 만든 뒤, (3) 해당 사본으로부터 새로운 암호화된 DB 인스턴스를 복원하는 것입니다. 원본이 암호화되지 않은 경우 읽기 전용 복제본만 따로 암호화하여 생성하는 것은 기술적으로 불가능합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0,3">
-  <p class="q-title">Q5. 고객 관리형 대칭 KMS 키에 자동 키 교체를 켰습니다. 옳은 설명 <strong>두 개</strong>를 고르세요.</p>
+  <p class="q-title">Q5. 고객 관리형 대칭 KMS 키에서 '자동 키 교체(Automatic Key Rotation)'를 활성화했습니다. 이 기능의 동작 방식으로 옳은 설명 <strong>두 개</strong>를 고르세요.</p>
   <div class="options">
     <button class="opt">키 ID는 그대로이고 예전 암호문도 복호화된다</button>
     <button class="opt">교체 시 기존 데이터가 새 키 자료로 재암호화</button>
@@ -186,63 +202,66 @@
     <button class="opt">기본 주기 365일이고 주기를 직접 지정 가능</button>
     <button class="opt">AWS 관리형 키도 마찬가지로 교체 끄기 가능</button>
   </div>
-  <div class="feedback"><p>교체는 키 자료만 바꾸고, 예전 키 자료를 보관해 기존 암호문을 자동으로 복호화합니다. 데이터를 재암호화하지 않습니다. 비대칭·HMAC 키는 자동 교체를 지원하지 않아 수동 교체해야 하고, AWS 관리형 키는 매년 교체되며 끌 수 없습니다.</p></div>
+  <div class="feedback"><p>KMS 키 교체는 키 ID, ARN, 별칭, 정책을 전혀 변경하지 않으며, 오직 내부의 백그라운드 키 자료만 바꿉니다. 이전 키 자료가 보존되므로 기존 데이터를 다시 암호화(Re-encrypt)할 필요 없이 자동으로 복호화됩니다. 고객 관리형 키의 기본 교체 주기는 365일이며 90~2,560일 사이로 직접 설정할 수 있습니다. 비대칭 키는 자동 교체를 지원하지 않으며, AWS 관리형 키는 매년 자동 교체되지만 사용자가 기능을 끌 수 없습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q6. (시험형) 외부 CA에서 산 인증서를 ACM으로 가져와 ALB에 붙여 두었는데, 갱신을 잊어 서비스 장애가 났습니다. 재발을 막는 방법 중 운영 부담이 가장 적은 것은?</p>
+  <p class="q-title">Q6. (시험형) 외부 상용 CA에서 구매한 SSL/TLS 인증서를 ACM으로 가져와(Import) Application Load Balancer에 연결해 두었습니다. 하지만 담당자가 갱신 시점을 놓쳐 인증서가 만료되면서 대규모 서비스 접속 장애가 발생했습니다. 향후 이러한 사고를 방지하고 운영 부담을 최소화하는 가장 좋은 대책은 무엇인가요?</p>
   <div class="options">
     <button class="opt">가져온 인증서에 ACM 자동 갱신을 활성화함</button>
     <button class="opt">Lambda로 매일 만료일 확인해 메일 발송</button>
     <button class="opt">ACM에서 DNS 검증 인증서를 발급해 연결</button>
     <button class="opt">인증서를 각 EC2 인스턴스에 직접 설치하기</button>
   </div>
-  <div class="feedback"><p>가져온 인증서는 ACM 관리형 갱신 대상이 아니라서 "자동 갱신 활성화"라는 옵션 자체가 없습니다. ACM이 DNS 검증으로 발급한 인증서는 사용 중이고 CNAME이 남아 있으면 자동 갱신됩니다. Lambda 알림은 감지일 뿐 갱신 작업은 여전히 사람 몫입니다.</p></div>
+  <div class="feedback"><p>외부에서 가져온 인증서(Imported Certificate)는 ACM이 자체적으로 재발급하거나 자동 갱신할 수 없습니다. 따라서 운영 오버헤드를 없애는 가장 확실한 방법은 ACM에서 직접 퍼블릭 인증서를 요청하고 DNS 검증 방식을 사용하는 것입니다. 도메인 CNAME 레코드가 유지되고 서비스에 연결되어 있는 한 ACM이 100% 완전 자동으로 갱신을 수행합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q7. (시험형) 규제상 암호화 키는 회사가 독점 통제하는 단일 테넌트 HSM에 있어야 하고, 기존 애플리케이션은 PKCS #11 인터페이스로 키를 사용합니다. 가장 적합한 서비스는?</p>
+  <p class="q-title">Q7. (시험형) 한 회사가 전자금융거래 규정에 따라 암호화 키를 회사가 물리적으로 독점 통제하는 단일 테넌트(Single-tenant) FIPS 140-2/3 Level 3 검증 하드웨어 보안 모듈에 보관해야 합니다. 또한 기존 레거시 온프레미스 애플리케이션은 PKCS #11 인터페이스를 통해 키와 직접 통신합니다. 가장 적합한 AWS 서비스는 무엇인가요?</p>
   <div class="options">
     <button class="opt">AWS 관리형 키를 쓰는 AWS KMS</button>
     <button class="opt">고객 관리형 키를 사용한 AWS KMS</button>
     <button class="opt">Secrets Manager 보안 암호</button>
     <button class="opt">AWS CloudHSM 클러스터를 사용</button>
   </div>
-  <div class="feedback"><p>"단일 테넌트 HSM", "독점 통제", "PKCS #11"은 모두 CloudHSM 신호입니다. 고객 관리형 키도 통제력은 높지만 키 자료는 AWS가 운영하는 HSM 플릿에 있습니다. Secrets Manager는 암호화 키가 아니라 자격 증명 같은 보안 암호를 저장하는 서비스입니다(0009).</p></div>
+  <div class="feedback"><p>"단일 테넌트 전용 하드웨어", "고객의 배타적 독점 통제", "PKCS #11 / JCE / CNG 인터페이스 지원"은 모두 AWS CloudHSM을 지목하는 핵심 키워드입니다. AWS KMS의 고객 관리형 키 역시 매우 안전하지만, 하드웨어 풀은 AWS가 관리하는 멀티테넌트 환경입니다. Secrets Manager는 암호화 키가 아닌 데이터베이스 비밀번호나 API 토큰을 보관하는 서비스입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q8. (0002 + 오늘) 계정 A의 S3 버킷은 SSE-KMS로 암호화되어 있고 키는 <code>aws/s3</code>입니다. 버킷 정책으로 계정 B에 GetObject를 허용했지만 계정 B 사용자는 객체를 읽지 못합니다. 올바른 해결책은?</p>
+  <p class="q-title">Q8. (0002 + 오늘 연계) 계정 A의 S3 버킷에 저장된 객체들이 AWS 관리형 키(<code>aws/s3</code>)로 SSE-KMS 암호화되어 있습니다. 계정 A의 관리자가 버킷 정책에 계정 B의 IAM 역할을 Principal로 지정하여 <code>s3:GetObject</code>를 허용했습니다. 하지만 계정 B의 사용자는 여전히 객체를 읽을 수 없습니다. 올바른 원인 분석과 해결책은 무엇인가요?</p>
   <div class="options">
     <button class="opt">계정 B 사용자 정책에 kms:Decrypt만 추가함</button>
     <button class="opt">고객 관리형 키로 바꾸고 키 정책에서 계정 B를 허용</button>
     <button class="opt">aws/s3 키의 키 정책을 수정해 계정 B를 추가함</button>
     <button class="opt">버킷 정책 Principal을 "*"로 바꿔서 공개함</button>
   </div>
-  <div class="feedback"><p>AWS 관리형 키로 암호화한 데이터는 교차 계정으로 공유할 수 없고, 그 키 정책은 수정할 수도 없습니다. 고객 관리형 키로 다시 암호화한 뒤 키 정책에 계정 B를 허용하고, 계정 B도 자기 사용자에게 <code>kms:Decrypt</code>를 줘야 합니다. 0002 규칙 5대로 교차 계정은 양쪽 모두의 허용이 필요하기 때문입니다.</p></div>
+  <div class="feedback"><p>AWS 관리형 키(<code>aws/s3</code>)는 AWS 서비스 계정이 소유하므로 고객이 키 정책을 직접 수정할 수 없으며, 따라서 기술적으로 교차 계정(Cross-Account) 공유가 불가능합니다. 교차 계정 접근을 허용하려면 반드시 '고객 관리형 키'를 생성하여 데이터를 재암호화한 뒤, 키 정책에 계정 B를 허용하고, 계정 B 측 IAM 정책에서도 <code>kms:Decrypt</code>를 허용해야 합니다(교차 계정 양방향 허용 원칙).</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) KMS 키 세 종류를 키 정책 통제, 교체, 교차 계정 공유 관점에서 비교하라. (2) S3 암호화 옵션 다섯 가지와 각각을 고르는 신호는? (3) 암호화되지 않은 RDS를 암호화하는 절차는?</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <p>교재를 보지 말고 직접 머릿속에서 인출하여 적어보세요.<br>
+  (1) KMS 키 세 종류(고객 관리형, AWS 관리형, AWS 소유)를 키 정책 통제권, 자동 교체 주기, 교차 계정 공유 가능 여부 관점에서 비교해 보세요.<br>
+  (2) S3 암호화 옵션 다섯 가지(SSE-S3, SSE-KMS, DSSE-KMS, SSE-C, 클라이언트 측)와 각각을 선택하는 핵심 시나리오 신호는 무엇인가요?<br>
+  (3) 이미 암호화되지 않은 상태로 생성된 EBS 볼륨과 RDS DB 인스턴스를 암호화하는 표준 3단계 절차는 무엇인가요?</p>
+  <textarea placeholder="여기에 직접 요약하여 적어보세요. 타이핑하는 과정에서 장기 기억으로 전환됩니다."></textarea>
   <button data-reveal>답 확인</button>
   <div class="answer">
-    <p>(1) <strong>고객 관리형</strong>: 키 정책을 내가 통제, 자동 교체 선택(기본 365일·주기 지정 가능), 키 정책으로 다른 계정 허용 가능. <strong>AWS 관리형</strong>: 정책은 조회만, 매년 자동 교체(변경 불가), 교차 계정 공유 불가. <strong>AWS 소유</strong>: 볼 수도 감사할 수도 없음, 무료.</p>
-    <p>(2) SSE-S3(기본값, 요구 없음) · SSE-KMS(감사·접근 통제·교체 제어) · DSSE-KMS(이중 계층) · SSE-C(고객이 요청마다 키 제공, S3는 키 저장 안 함) · 클라이언트 측(AWS도 평문을 보면 안 됨).</p>
-    <p>(3) 스냅샷 생성 → 스냅샷을 암호화된 사본으로 복사 → 그 사본에서 새 DB 인스턴스 복원. EBS도 같은 원리(스냅샷 → 암호화된 새 볼륨).</p>
+    <p>(1) <strong>고객 관리형 키</strong>: 고객이 키 정책을 100% 통제, 자동 교체 선택 가능(기본 365일 또는 주기 직접 지정), 키 정책을 통해 다른 계정과 공유 가능. <strong>AWS 관리형 키</strong>: 키 정책 읽기만 가능(수정 불가), 매년 365일마다 AWS가 자동 교체(끌 수 없음), 교차 계정 공유 절대 불가. <strong>AWS 소유 키</strong>: 고객 계정에서 보이지 않으며 완전 무료.<br>
+    (2) <strong>SSE-S3</strong>(추가 요구 없는 기본 무료 암호화) · <strong>SSE-KMS</strong>(CloudTrail 감사, 키 정책 제어, 직접 교체 통제 필요 시) · <strong>DSSE-KMS</strong>(규정 준수를 위한 이중 계층 암호화) · <strong>SSE-C</strong>(고객이 요청마다 키를 보내고 S3는 키 미저장, HTTPS 필수) · <strong>클라이언트 측 암호화</strong>(AWS에게도 평문 노출을 절대 허용할 수 없을 때).<br>
+    (3) 기존 리소스의 스냅샷 생성 → 스냅샷을 복사하면서 암호화(KMS 키) 활성화 → 암호화된 스냅샷 사본에서 새로운 볼륨 또는 DB 인스턴스 복원. (EBS는 계정별 기본 암호화 설정으로 향후 신규 볼륨 자동 암호화 가능).</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html">"AWS KMS keys"</a>. 키 세 종류 비교표가 오늘 표의 원본입니다. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (선택)</strong>: KMS 콘솔의 <em>AWS managed keys</em> 페이지에서 <code>aws/s3</code>나 <code>aws/ebs</code>의 키 정책을 열어 보세요. 조회는 되지만 편집 버튼이 없다는 것을 확인할 수 있습니다. 고객 관리형 키를 만들어 보는 것도 좋지만 키마다 월 요금이 붙으니, 연습 후에는 삭제를 예약하세요(최소 7일 대기).</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>1차 공식 문서 (필독, 약 10분)</strong>: <a href="https://docs.aws.amazon.com/ko_kr/kms/latest/developerguide/concepts.html">"AWS KMS concepts - AWS KMS keys"</a>. 세 종류의 키 비교표와 봉투 암호화의 공식 도식이 친절하게 정리되어 있습니다.</p>
+<p><strong>콘솔 실습 (선택 사항)</strong>: AWS KMS 콘솔에 접속하여 <em>AWS managed keys</em> 메뉴를 클릭하고 <code>aws/s3</code>나 <code>aws/ebs</code>의 세부 정보 화면을 확인해 보세요. 키 정책을 볼 수는 있지만 편집 버튼이 비활성화되어 있는 것을 직접 확인할 수 있습니다. 고객 관리형 키를 직접 만들어 볼 수도 있지만 키당 월 $1의 요금이 부과되므로, 테스트 후에는 즉시 삭제 예약(최소 7일 대기)을 진행하세요.</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. 특히 Q2(키 정책 예외)와 Q8(AWS 관리형 키의 교차 계정 한계)은 0002와 연결되는 지점이라, 어떻게 생각했는지 들려주면 다음 레슨 난이도를 맞추는 데 도움이 됩니다.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>실전 연습 문제 점수와 헷갈렸던 문항을 기록해 보세요. 특히 Q2(KMS 키 정책 예외)와 Q8(AWS 관리형 키의 교차 계정 제약)은 레슨 0002(IAM과 권한 평가 로직)와 깊이 연계되는 핵심 지점입니다. 질문이나 이해가 어려운 부분이 있다면 언제든 남겨주세요!</p>
 </div>
 
 <h3>출처</h3>

@@ -11,86 +11,101 @@
 
 <p class="kicker">레슨 0013 · 도메인 3 고성능 아키텍처 (24%) · Task 3.2 · 2.1/4.2 연계</p>
 <h1>서버를 얼마나 내려놓을까:<br>Lambda, ECS, EKS, Fargate — 언제 무엇을</h1>
-<p class="lede">EC2(0010~0012)는 서버를 직접 고르고 관리합니다. 오늘은 그 관리를 AWS에 점점 더 넘기는 선택지들입니다. 시험은 "실행 시간", "Kubernetes", "운영 부담 최소", "GPU" 같은 단어로 답을 가릅니다.</p>
-<div class="meta"><span>⏱ 약 18분</span><span>🎯 오늘의 승리: 워크로드를 보고 EC2·컨테이너·Lambda 중 고르기, 시나리오 8문항</span><span>📌 <a href="../reference/compute.html">컴퓨팅 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+<p class="lede">앞선 EC2 레슨(0010~0012)에서는 인스턴스 사양과 OS를 직접 선택하고 패치하며 관리했습니다. 이번 레슨에서는 인프라 관리의 부담을 AWS에 점점 더 많이 위임하는 현대적인 두 축인 '서버리스(Serverless)'와 '컨테이너(Container)' 서비스를 배웁니다. 시험에서는 "15분이라는 최대 실행 시간 제한", "Kubernetes 표준 생태계와의 호환성", "운영 관리 오버헤드 최소화", "GPU 등 특수 하드웨어 지원 여부"와 같은 결정적 키워드를 바탕으로 올바른 서비스 조합을 선택할 수 있는지를 집중적으로 평가합니다.</p>
+<div class="meta"><span>⏱ 약 18분</span><span>🎯 오늘의 승리: 워크로드 특성을 분석하여 EC2·컨테이너·Lambda 중 최적의 컴퓨팅 선택하기, 시나리오 8문항 완전 정복</span><span>📌 <a href="../reference/compute.html">컴퓨팅 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
 
-<h2>왜 이것부터인가</h2>
-<p><strong>시험에서</strong>: "최소 운영 오버헤드"는 거의 항상 관리형·서버리스 쪽이 정답입니다. 단, Lambda의 15분 제한이나 Fargate의 GPU 미지원 같은 한계를 넘는 시나리오가 함정으로 나옵니다.<br>
-<strong>실무에서</strong>: 이벤트 처리는 Lambda, 장시간 서비스는 컨테이너, 특수 하드웨어는 EC2라는 분업이 현대 아키텍처의 기본 골격입니다.</p>
+<h2>왜 서버리스와 컨테이너를 배워야 할까요?</h2>
+<p><strong>시험 관점</strong>: 시험 문제에서 "운영 오버헤드 최소화(Least operational overhead)"라는 문구가 나오면 거의 대부분 완전 관리형 또는 서버리스(Lambda, Fargate) 아키텍처가 정답의 강력한 후보입니다. 하지만 무조건 서버리스를 고르면 안 됩니다. Lambda의 최대 실행 시간 15분 제한이나 Fargate의 GPU 미지원과 같은 기술적 한계를 교묘하게 넘나드는 시나리오들이 오답 함정으로 자주 출제되기 때문입니다.<br>
+<strong>실무 관점</strong>: 이벤트 기반의 짧고 간헐적인 처리는 Lambda, 마이크로서비스 형태의 지속적인 웹 서비스나 복잡한 의존성을 가진 애플리케이션은 컨테이너(ECS/EKS on Fargate), GPU 머신러닝 학습이나 특수한 커널 제어가 필요한 작업은 EC2에 맡기는 '적재적소의 분업'이 클라우드 네이티브 아키텍처 설계의 기본 표준입니다.</p>
 
-<h2>Lambda: 이벤트가 오면 코드가 돈다</h2>
-<p>Lambda는 서버를 프로비저닝하거나 관리하지 않고 코드를 실행하는 서버리스 컴퓨팅 서비스입니다. 서버 유지 관리, 용량 프로비저닝, 확장, 패치를 AWS가 맡습니다. 핸들러 함수를 API Gateway, S3, SQS, EventBridge 등 200개 이상의 AWS 서비스 트리거에 연결하며, 요청 수와 실행 시간(GB-초)만큼 과금됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/welcome.html">[1]</a></sup></p>
+<h2>Lambda: 이벤트가 발생하면 코드가 즉각 실행되는 서버리스 컴퓨팅</h2>
+<p>AWS Lambda는 가상 서버를 직접 프로비저닝하거나 운영체제를 관리할 필요 없이 코드만 등록해 두면 실행되는 대표적인 서버리스 컴퓨팅 서비스입니다. 고가용성 유지보수, 용량 산정, 오토 스케일링, OS 보안 패치 등을 모두 AWS가 백그라운드에서 전담합니다. 개발자가 작성한 핸들러 함수를 API Gateway, S3 버킷, SQS 대기열, EventBridge 등 200개 이상의 다양한 AWS 서비스 이벤트에 트리거로 연결할 수 있습니다. 특히 서버가 켜져 있는 시간 전체에 과금되는 것이 아니라, 오직 <strong>요청 횟수</strong>와 코드가 실제로 실행된 <strong>실행 시간(밀리초 단위 및 메모리 할당량에 따른 GB-초)</strong>에 대해서만 비용을 지불하므로 유휴 상태일 때는 비용이 0원입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/welcome.html">[1]</a></sup></p>
+
 <table>
-<tr><th>설정·한도</th><th>값</th><th>시험 포인트</th></tr>
-<tr><td>제한 시간 (timeout)</td><td>기본 3초, <strong>최대 900초(15분)</strong><sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html">[4]</a></sup></td><td>15분 넘는 작업 → Lambda 아님</td></tr>
-<tr><td>메모리</td><td>128 MB ~ 10,240 MB. <strong>CPU는 메모리에 비례</strong>해 할당, 1,769 MB에서 vCPU 1개 상당<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-memory.html">[3]</a></sup></td><td>CPU가 부족하면 <strong>메모리를 올린다</strong> (CPU를 따로 설정하는 칸은 없음)</td></tr>
-<tr><td>동시성 (concurrency)</td><td>리전당 계정 기본 <strong>1,000</strong>, 증가 요청 가능. 초과하면 스로틀링<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html">[5]</a></sup></td><td>동시성 = 초당 요청 수 × 평균 실행 시간(초)</td></tr>
-<tr><td>페이로드</td><td>동기 요청·응답 각 6 MB, 비동기 1 MB<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html">[2]</a></sup></td><td>큰 파일은 S3에 두고 키만 전달</td></tr>
-<tr><td>패키지·임시 저장소</td><td>.zip 50 MB(압축)/250 MB(해제), 컨테이너 이미지 10 GB, <code>/tmp</code> 512 MB~10,240 MB<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html">[2]</a></sup></td><td>Lambda도 컨테이너 이미지로 배포 가능</td></tr>
+<tr><th>설정 및 주요 한도</th><th>상세 수치</th><th>시험 핵심 포인트</th></tr>
+<tr><td>제한 시간 (Timeout)</td><td>기본값 3초, <strong>최대 900초 (15분)</strong><sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html">[4]</a></sup></td><td>단일 실행에 15분을 초과하는 장시간 작업(대규모 배치, 비디오 인코딩 등)에는 <strong>Lambda를 사용할 수 없습니다</strong>. ECS/Fargate나 AWS Batch를 선택해야 합니다.</td></tr>
+<tr><td>메모리 할당량 및 CPU 관계</td><td>128 MB ~ 10,240 MB (10 GB) 설정 가능. <strong>CPU 파워는 할당한 메모리에 비례</strong>하여 자동으로 배정되며, 1,769 MB에서 vCPU 1개 상당의 연산 능력을 얻음<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-memory.html">[3]</a></sup></td><td>Lambda 설정 화면에는 vCPU를 독립적으로 지정하는 항목이 없습니다. 따라서 CPU 연산 집약적인 작업이 느려서 속도를 높여야 한다면 <strong>메모리 할당량을 증설</strong>하는 것이 올바른 해법입니다.</td></tr>
+<tr><td>동시성 (Concurrency)</td><td>리전당 계정 기본 한도 <strong>1,000</strong> (요청을 통해 증설 가능). 이 한도를 초과하면 <code>429 Too Many Requests</code> 스로틀링 발생<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html">[5]</a></sup></td><td>필요한 동시성 계산 공식: <code>초당 요청 수(RPS) × 평균 실행 시간(초)</code>. (예: 초당 100건 요청에 실행 시간이 평균 2초라면 동시성은 200)</td></tr>
+<tr><td>페이로드 크기 한도</td><td>동기식(Request-Response) 요청/응답: 각 <strong>6 MB</strong>, 비동기식(이벤트): <strong>256 KB</strong><sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html">[2]</a></sup></td><td>대용량 파일(수십 MB~GB)을 함수에 직접 전달하면 실패합니다. 파일을 먼저 <strong>S3 버킷에 업로드</strong>하고, Lambda에는 S3 객체의 키(Key/경로)만 이벤트로 전달하는 패턴을 사용합니다.</td></tr>
+<tr><td>패키지 및 임시 스토리지</td><td>배포 패키지(.zip) 압축 기준 50 MB, 압축 해제 기준 250 MB. <strong>컨테이너 이미지 배포 시 최대 10 GB</strong>까지 지원. 로컬 임시 디스크(<code>/tmp</code>)는 512 MB ~ 10,240 MB 설정 가능<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html">[2]</a></sup></td><td>라이브러리 크기가 큰 복잡한 머신러닝 모델이나 무거운 의존성 패키지도 컨테이너 이미지(Docker Image) 형태로 패키징하여 Lambda에 배포할 수 있습니다.</td></tr>
 </table>
 
-<h3>예약 동시성 vs 프로비저닝된 동시성</h3>
-<table>
-<tr><th></th><th>예약 동시성 (reserved)</th><th>프로비저닝된 동시성 (provisioned)</th></tr>
-<tr><td>하는 일</td><td>계정 동시성 일부를 함수에 <strong>떼어 줌</strong>. 그 함수의 상한이자 보장된 몫. 다른 함수는 그 몫을 못 씀</td><td>실행 환경을 <strong>미리 초기화</strong>해 둠</td></tr>
-<tr><td>푸는 문제</td><td>다른 함수 폭주로 중요한 함수가 스로틀링됨 / 함수가 다운스트림(DB)을 압도함</td><td><strong>콜드 스타트</strong> 지연</td></tr>
-<tr><td>요금</td><td>추가 요금 없음</td><td><strong>추가 요금</strong> 있음</td></tr>
-</table>
-<p class="muted" style="font-size:.9rem">출처: Lambda 개발자 안내서의 동시성 비교표.<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html">[5]</a></sup></p>
+<h3>콜드 스타트와 동시성 제어: 예약 동시성 vs 프로비저닝된 동시성</h3>
+<p>Lambda 함수가 처음 호출되거나 트래픽이 급증하여 새로운 실행 환경이 생성될 때, 런타임을 다운로드하고 코드를 메모리에 적재하며 초기화(Init) 코드를 실행하는 동안 수백 밀리초에서 수 초의 지연이 발생하는데, 이를 <strong>콜드 스타트(Cold Start)</strong>라고 합니다. AWS는 동시성과 콜드 스타트 문제를 해결하기 위해 두 가지 상이한 동시성 모델을 제공합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html">[5]</a></sup></p>
 
-<h2>컨테이너: 오케스트레이터 × 컴퓨팅</h2>
-<p>AWS의 컨테이너 결정 가이드는 두 단계로 고르라고 합니다. 먼저 <strong>오케스트레이터</strong>, 그다음 그 위의 <strong>컴퓨팅 모델</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/containers-on-aws-how-to-choose/choosing-aws-container-service.html">[6]</a></sup></p>
 <table>
-<tr><th>1단계: 오케스트레이터</th><th>고르는 이유</th></tr>
-<tr><td><strong>Amazon ECS</strong></td><td>AWS 네이티브, 더 낮은 운영 부담. Kubernetes 컨트롤 플레인을 관리하고 싶지 않을 때</td></tr>
-<tr><td><strong>Amazon EKS</strong></td><td><strong>Kubernetes API와 생태계</strong>, 표준 Kubernetes API를 통한 클라우드·온프레미스 간 이식성, 기존 Kubernetes 기술·도구 투자. 고가용성 컨트롤 플레인을 AWS가 관리</td></tr>
+<tr><th>구분</th><th>예약 동시성 (Reserved Concurrency)</th><th>프로비저닝된 동시성 (Provisioned Concurrency)</th></tr>
+<tr><td>동작 방식</td><td>계정 전체의 동시성 풀에서 특정 함수만을 위해 전용 실행 용량을 <strong>일정 수량만큼 미리 떼어내어 할당</strong>합니다. 이는 해당 함수의 <strong>보장된 최소 용량</strong>이자 동시에 <strong>최대 실행 상한선</strong>이 됩니다. 다른 함수들은 이 예약된 용량을 절대 침범할 수 없습니다.</td><td>지정한 수량만큼의 <strong>실행 컨테이너 환경을 사전에 완전히 초기화(데워 둠)</strong>하여 호출 대기 상태로 유지합니다.</td></tr>
+<tr><td>해결하는 문제</td><td>(1) 덜 중요한 다른 함수의 트래픽 폭주로 인해 핵심 비즈니스 함수가 스로틀링되는 것을 방지합니다.<br>(2) 함수가 무제한으로 동시 실행되어 다운스트림 관계형 데이터베이스(RDS 등)에 과도한 커넥션을 열어 DB를 다운시키는 것을 방어합니다.</td><td>함수 최초 호출 시 발생하는 <strong>콜드 스타트(Cold Start) 지연 시간을 완전히 제거</strong>하여, 지연 시간에 극도로 민감한 대화형 웹/모바일 API에 두 자릿수 밀리초 미만의 일관된 응답 속도를 제공합니다.</td></tr>
+<tr><td>비용 체계</td><td>설정에 따른 <strong>추가 요금이 전혀 없습니다</strong> (실제 호출된 시간만 과금).</td><td>사전에 띄워 둔 컨테이너 리소스에 대해 <strong>시간당 추가 요금이 발생</strong>합니다.</td></tr>
 </table>
-<table>
-<tr><th>2단계: ECS 컴퓨팅</th><th>관리 부담</th><th>이럴 때</th></tr>
-<tr><td><strong>Fargate</strong> (서버리스)</td><td>인스턴스 없음. 작업마다 요청한 vCPU·메모리만큼 과금</td><td>인프라 관리 없이 앱에 집중, 변동이 크거나 예측 어려운 부하. 작업마다 ENI와 작업 수준 IAM 역할. Linux 작업당 최대 32 vCPU·244 GiB, <strong>GPU 미지원</strong></td></tr>
-<tr><td><strong>EC2</strong> (시작 유형)</td><td>인스턴스 선택·구성·패치를 직접</td><td><strong>GPU</strong> 등 특수 하드웨어, 특정 인스턴스 유형·용량 예약, 특권(privileged) 기능, 사용자 지정 AMI</td></tr>
-<tr><td>ECS Managed Instances</td><td>EC2에서 돌지만 프로비저닝·패치·확장은 AWS</td><td>Fargate의 단순함 + EC2 유형 선택(GPU 포함)</td></tr>
-</table>
-<p class="muted" style="font-size:.9rem">비교 내용은 결정 가이드와 ECS 개발자 안내서 기준입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/containers-on-aws-how-to-choose/choosing-aws-container-service.html">[6]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AmazonECS/latest/developerguide/launch_types.html">[7]</a></sup> EKS도 Fargate나 관리형 노드 그룹, Auto Mode 위에서 돌릴 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/containers-on-aws-how-to-choose/choosing-aws-container-service.html">[6]</a></sup> ECS 용어로 <strong>작업 정의</strong>(task definition)는 컨테이너 청사진(JSON), <strong>작업</strong>(task)은 그 실행 인스턴스, <strong>서비스</strong>는 원하는 작업 수를 계속 유지합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonECS/latest/developerguide/launch_types.html">[7]</a></sup></p>
 
-<p><strong>AWS Batch</strong>는 배치 작업을 제출하면 필요한 컴퓨팅을 알아서 프로비저닝하고 작업을 스케줄링하는 완전 관리형 서비스입니다. ECS·EKS 위에서 EC2(온디맨드·Spot), Fargate 용량을 씁니다. HPC·ML·시뮬레이션 같은 대규모 배치에 씁니다.<sup class="cite"><a href="https://docs.aws.amazon.com/batch/latest/userguide/what-is-batch.html">[8]</a></sup></p>
+<h2>컨테이너: 오케스트레이터 × 컴퓨팅 모델의 2단계 선택</h2>
+<p>AWS에서 컨테이너 기반 워크로드를 설계할 때는 AWS 공식 결정 가이드에 따라 <strong>1단계: 컨테이너 오케스트레이터</strong>를 먼저 결정하고, <strong>2단계: 그 아래에서 동작할 컴퓨팅(인프라) 모델</strong>을 선택하는 2단계 프레임워크를 적용합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/decision-guides/latest/containers-on-aws-how-to-choose/choosing-aws-container-service.html">[6]</a></sup></p>
+
+<h3>1단계: 오케스트레이터 선택 (ECS vs EKS)</h3>
+<table>
+<tr><th>오케스트레이터</th><th>선택하는 이유 및 특징</th></tr>
+<tr><td><strong>Amazon ECS</strong> (Elastic Container Service)</td><td>AWS가 자체 개발한 <strong>AWS 네이티브 오케스트레이터</strong>입니다. IAM, CloudWatch, ALB 등 AWS 생태계와 매우 깊고 단순하게 통합되어 있어 러닝 커브가 낮고 <strong>운영 오버헤드가 극히 적습니다</strong>. Kubernetes의 복잡한 컨트롤 플레인이나 애드온을 관리하고 싶지 않고 AWS 환경에서 컨테이너를 가장 간편하게 운영하고자 할 때 최적의 선택입니다.</td></tr>
+<tr><td><strong>Amazon EKS</strong> (Elastic Kubernetes Service)</td><td>오픈소스 <strong>표준 Kubernetes API 및 생태계</strong>를 완벽하게 지원하는 관리형 서비스입니다. Helm 차트, K8s 매니페스트, 오퍼레이터(Operator) 등 기존 Kubernetes 기술 자산과 도구를 그대로 활용할 수 있으며, 온프레미스 데이터센터나 다른 퍼블릭 클라우드 간의 뛰어난 애플리케이션 이식성이 필요할 때 선택합니다. 마스터 노드(컨트롤 플레인)의 고가용성과 패치는 AWS가 완전 관리형으로 책임집니다.</td></tr>
+</table>
+
+<h3>2단계: 컴퓨팅 모델 선택 (Fargate vs EC2 시작 유형)</h3>
+<table>
+<tr><th>컴퓨팅 모델</th><th>관리 오버헤드</th><th>적합한 시나리오 및 기술적 제약</th></tr>
+<tr><td><strong>AWS Fargate</strong><br>(서버리스 엔진)</td><td><strong>가상 서버 관리 부담 제로</strong>. 사용자가 관리할 EC2 인스턴스가 아예 없으며, 컨테이너 작업(Task)이 요청한 vCPU와 메모리 리소스만큼만 초 단위로 과금됩니다.</td><td>기저 인프라 패치나 클러스터 용량 관리에 신경 쓰지 않고 애플리케이션 코드에만 집중하고 싶을 때. 트래픽 변동이 심하거나 예측하기 어려운 마이크로서비스.<br><strong>핵심 제약사항</strong>: Linux 작업당 최대 32 vCPU 및 244 GiB 메모리 지원, <strong>GPU를 지원하지 않음</strong> (GPU 기반 AI/ML 학습 및 추론 불가능). 작업마다 독립적인 VPC ENI와 작업 수준의 세분화된 IAM 역할이 할당됩니다.</td></tr>
+<tr><td><strong>EC2 시작 유형</strong><br>(EC2 Launch Type)</td><td>인스턴스 패밀리 선택, 스토리지 크기, OS 구성, 보안 패치, 클러스터 오토 스케일링을 관리자가 <strong>직접 운영</strong>해야 합니다.</td><td><strong>GPU 인스턴스(G/P 패밀리)</strong>를 활용해야 하는 머신러닝 워크로드, 특정 인스턴스 패밀리나 예약 인스턴스(RI)/세이빙스 플랜을 최대한 활용해야 할 때, 컨테이너 호스트 수준의 파일시스템이나 도커 데몬을 직접 조작해야 하는 <strong>특권(Privileged) 컨테이너</strong>, 사용자 지정 AMI가 필요한 환경에 필수적입니다.</td></tr>
+<tr><td><strong>ECS Managed Instances</strong></td><td>실제 컴퓨팅은 EC2 인스턴스 위에서 실행되지만, 인스턴스의 프로비저닝, 패치, 수평 확장을 AWS가 자동화합니다.</td><td>Fargate의 운영 단순성을 누리면서도, Fargate에서 지원하지 않는 GPU 인스턴스 유형 선택권이나 특수한 하드웨어 구성이 필요할 때 절충안으로 활용됩니다.</td></tr>
+</table>
+
+<p><strong>ECS 핵심 용어 정리</strong>: ECS를 다룰 때 반드시 알아야 할 3대 개념입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonECS/latest/developerguide/launch_types.html">[7]</a></sup>
+<ul>
+<li><strong>작업 정의(Task Definition)</strong>: 컨테이너의 청사진(Blueprint)입니다. 사용할 도커 이미지 URL, 필요한 CPU/메모리 사양, 포트 매핑, 환경 변수, IAM 작업 역할 등을 정의한 JSON 파일입니다.</li>
+<li><strong>작업(Task)</strong>: 작업 정의에 따라 실제로 메모리에 올라가 실행 중인 컨테이너 인스턴스 묶음입니다.</li>
+<li><strong>서비스(Service)</strong>: 지정한 수량(예: 3개)의 작업이 항상 정상적으로 실행 상태를 유지하도록 감시하고, 작업이 비정상 종료되면 즉시 새 작업을 띄워 자동 복구하며, ALB와 연동하여 트래픽을 분산해 주는 관리 단위입니다.</li>
+</ul>
+</p>
+
+<p><strong>AWS Batch란?</strong> AWS Batch는 엔지니어링 시뮬레이션, 금융 리스크 분석, 유전체 데이터 분석, 대규모 머신러닝 데이터 전처리 등 수십만 건의 대규모 배치 컴퓨팅 작업을 효율적으로 실행할 수 있도록 지원하는 완전 관리형 서비스입니다. 사용자가 작업 대기열(Job Queue)에 작업을 제출하면, AWS Batch가 작업의 리소스 요구사항에 맞추어 최적의 컴퓨팅 인프라(EC2 온디맨드, 스팟 인스턴스, 또는 Fargate)를 자동으로 프로비저닝하고, 작업이 끝나면 인스턴스를 즉시 자동 회수하여 비용을 극대화합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/batch/latest/userguide/what-is-batch.html">[8]</a></sup></p>
 
 <figure>
 <svg viewBox="0 0 600 170" role="img" aria-label="관리 부담 스펙트럼: EC2, ECS on EC2, Fargate, Lambda 순으로 AWS가 관리하는 범위가 넓어짐" style="width:100%;height:auto;font-family:var(--sans)">
   <defs><marker id="ah13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
   <line x1="20" y1="30" x2="580" y2="30" stroke="var(--muted)" marker-end="url(#ah13)"/>
-  <text x="20" y="20" font-size="11" fill="var(--muted)">내가 관리하는 범위 넓음</text>
-  <text x="580" y="20" text-anchor="end" font-size="11" fill="var(--muted)">AWS가 관리하는 범위 넓음</text>
+  <text x="20" y="20" font-size="11" fill="var(--muted)">내가 관리하는 인프라 범위가 넓음</text>
+  <text x="580" y="20" text-anchor="end" font-size="11" fill="var(--muted)">AWS가 전담 관리하는 범위가 넓음</text>
   <rect x="20" y="50" width="125" height="60" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="82" y="75" text-anchor="middle" font-size="13" fill="var(--fg)">EC2</text>
-  <text x="82" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">OS·런타임·확장</text>
+  <text x="82" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">OS·런타임·확장 직접</text>
   <rect x="165" y="50" width="125" height="60" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="227" y="75" text-anchor="middle" font-size="13" fill="var(--fg)">ECS/EKS on EC2</text>
-  <text x="227" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">인스턴스 + 컨테이너</text>
+  <text x="227" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">인스턴스 + 컨테이너 관리</text>
   <rect x="310" y="50" width="125" height="60" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
   <text x="372" y="75" text-anchor="middle" font-size="13" fill="var(--fg)">Fargate</text>
-  <text x="372" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">컨테이너만</text>
+  <text x="372" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">컨테이너만 관리 (서버리스)</text>
   <rect x="455" y="50" width="125" height="60" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/>
   <text x="517" y="75" text-anchor="middle" font-size="13" fill="var(--fg)">Lambda</text>
-  <text x="517" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">함수 코드만</text>
-  <text x="82" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">GPU·특수 HW·완전 제어</text>
-  <text x="227" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">GPU 컨테이너, 용량 제어</text>
-  <text x="372" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">장시간 서비스, 무서버</text>
-  <text x="517" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">이벤트·15분 이내</text>
+  <text x="517" y="95" text-anchor="middle" font-size="11" fill="var(--muted)">함수 코드만 관리 (서버리스)</text>
+  <text x="82" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">GPU·특수 하드웨어·완전 제어</text>
+  <text x="227" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">GPU 컨테이너, 호스트 제어</text>
+  <text x="372" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">장시간 서비스, 서버리스</text>
+  <text x="517" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">이벤트 기반 · 15분 이내</text>
 </svg>
 </figure>
 
 <div class="callout">
-<p class="label">시험 단골: 키워드 → 답</p>
+<p class="label">시험에 자주 나오는 핵심 패턴</p>
 <ul>
-<li>"S3 업로드/SQS 메시지/일정에 반응", "간헐적", "서버 관리 없이" → <strong>Lambda</strong></li>
-<li>"15분 넘게 실행", "수 시간 처리" → Lambda <strong>아님</strong>. 컨테이너(<strong>Fargate</strong>)나 <strong>AWS Batch</strong></li>
-<li>"Lambda가 느리다(CPU 바운드)" → <strong>메모리 증가</strong> / "콜드 스타트" → <strong>프로비저닝된 동시성</strong> / "다른 함수 때문에 스로틀링" → <strong>예약 동시성</strong></li>
-<li>"Kubernetes", "기존 매니페스트·Helm", "멀티클라우드 이식성" → <strong>EKS</strong></li>
-<li>"컨테이너 + 서버 관리 최소" → <strong>ECS on Fargate</strong></li>
-<li>"컨테이너 + GPU", "사용자 지정 AMI", "특권 컨테이너" → <strong>EC2 시작 유형</strong></li>
-<li>"대규모 배치 작업 스케줄링·프로비저닝 자동화" → <strong>AWS Batch</strong></li>
-<li>EC2·Fargate·Lambda를 한 약정으로 할인 → <strong>Compute Savings Plans</strong> (0010)</li>
+<li>"S3 이미지 업로드, SQS 메시지 수신, 특정 일정(Schedule)에 즉각 반응", "간헐적이고 불규칙한 호출", "서버 관리 오버헤드 최소화" → <strong>AWS Lambda</strong></li>
+<li>"단일 실행에 15분 이상 소요되는 작업", "수 시간 동안 지속되는 데이터 처리" → Lambda <strong>절대 불가(오답)</strong>. <strong>ECS on Fargate</strong>나 <strong>AWS Batch</strong> 선택</li>
+<li>"Lambda 함수가 CPU 병목으로 실행 시간이 너무 오래 걸림" → <strong>메모리 할당량 증설</strong> (CPU는 메모리에 비례하여 자동 할당됨)</li>
+<li>"Lambda 최초 호출 시 발생하는 콜드 스타트 지연 제거" → <strong>프로비저닝된 동시성(Provisioned Concurrency)</strong></li>
+<li>"특정 함수의 트래픽 폭주로 인한 다른 함수의 스로틀링 방지" 또는 "다운스트림 RDS 과부하 방어" → <strong>예약 동시성(Reserved Concurrency)</strong></li>
+<li>"기존 온프레미스 Kubernetes 매니페스트 및 Helm 차트 자산 활용", "멀티 클라우드 이식성" → <strong>Amazon EKS</strong></li>
+<li>"컨테이너 기반 마이크로서비스 배포 + 기저 EC2 인스턴스 관리 오버헤드 완전 제거" → <strong>Amazon ECS on Fargate</strong></li>
+<li>"컨테이너 실행 환경에 GPU 가속 필요", "사용자 지정 커스텀 AMI 필요", "특권(Privileged) 컨테이너 필요" → <strong>ECS EC2 시작 유형(EC2 Launch Type)</strong></li>
+<li>"대규모 배치 워크로드의 스케줄링 및 스팟/온디맨드 인스턴스 자동 프로비저닝" → <strong>AWS Batch</strong></li>
+<li>EC2, Fargate, Lambda 사용량을 하나의 통합 약정으로 묶어 최대 할인을 적용받는 상품 → <strong>Compute Savings Plans</strong> (레슨 0010 복습)</li>
 </ul>
 </div>
 
@@ -104,7 +119,7 @@
     <button class="opt">EKS 클러스터에 썸네일 서비스를 상시 배포해 둠</button>
     <button class="opt">전용 호스트 위의 EC2에서 크론 작업들을 실행함</button>
   </div>
-  <div class="feedback"><p>짧고(몇 초), 이벤트 기반이며, 양이 불규칙한 작업은 Lambda의 정석입니다. S3 이벤트가 함수를 직접 호출하고, 요청이 없으면 비용도 거의 없습니다. EC2 폴링이나 상시 EKS 서비스는 서버·클러스터 관리 부담과 유휴 비용이 생깁니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>S3 이벤트 알림으로 Lambda를 호출해 처리하는 것</strong>입니다. 실행 시간이 수 초 이내로 매우 짧고, 요청이 간헐적이고 불규칙하게 들어오는 워크로드는 AWS Lambda의 전형적인 표준 사용 사례입니다. S3 버킷에 이미지가 업로드될 때마다 이벤트 알림이 Lambda 함수를 즉시 트리거하며, 이미지가 업로드되지 않는 유휴 시간에는 단 1원의 서버 비용도 발생하지 않아 비용과 운영 효율이 가장 뛰어납니다. 반면 EC2나 상시 EKS 클러스터를 띄워 두면 지속적인 서버 인프라 관리 부담과 유휴 서버 비용이 낭비됩니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
@@ -115,7 +130,7 @@
     <button class="opt">EC2 인스턴스를 상시 켜 두고 크론으로 실행</button>
     <button class="opt">ECS on Fargate 예약 작업으로 실행</button>
   </div>
-  <div class="feedback"><p>Lambda의 최대 제한 시간은 <strong>900초(15분)</strong>라 60분 설정은 불가능합니다. 40분짜리 컨테이너 작업을 서버 관리 없이 돌리려면 Fargate가 맞습니다(대규모 배치라면 Fargate를 쓰는 AWS Batch도 후보). 상시 EC2는 서버 관리와 유휴 비용이 생기고, 하나의 변환 작업을 40개로 쪼개려면 코드 재설계가 필요해 요구사항을 벗어납니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>ECS on Fargate 예약 작업으로 실행</strong>하는 것입니다. AWS Lambda의 하드 리밋(최대 실행 제한 시간)은 <strong>900초(15분)</strong>이므로 40분이 걸리는 단일 작업을 60분으로 늘려 Lambda에서 돌리는 것은 기술적으로 완전히 불가능합니다. 15분을 초과하는 장시간 컨테이너 워크로드를 기저 서버 관리 없이 서버리스 형태로 실행하려면 AWS Fargate가 정답입니다. EventBridge Scheduler로 매일 밤 ECS Fargate 작업을 트리거하면 작업이 끝난 후 컨테이너가 자동으로 종료되어 비용도 최소화됩니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
@@ -126,7 +141,7 @@
     <button class="opt">Lambda 함수로 마이크로서비스 전부를 이전</button>
     <button class="opt">EC2에 Kubernetes를 직접 설치해 씀</button>
   </div>
-  <div class="feedback"><p>Kubernetes API·생태계를 유지하면서 고가용성 컨트롤 플레인 관리를 AWS에 넘기는 것이 EKS입니다. ECS도 관리형이지만 매니페스트와 Helm 차트를 작업 정의로 다시 써야 해서 "기존 자산 그대로" 요구에 어긋납니다. EC2에 직접 설치하면 컨트롤 플레인 부담이 그대로 남습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>EKS 기반 관리형 Kubernetes를 사용하는 것</strong>입니다. Amazon EKS는 표준 Kubernetes와 100% 호환되므로, 기존에 온프레미스에서 구축해 둔 Helm 차트, YAML 매니페스트 파일, 로깅/모니터링 오픈소스 도구들을 코드 수정 없이 그대로 AWS로 마이그레이션할 수 있습니다. 동시에 고가용성 멀티 AZ 컨트롤 플레인의 설치, 업그레이드, 백업 부담은 AWS가 대신 책임집니다. 반면 Amazon ECS는 AWS 고유의 작업 정의(Task Definition) 형식으로 모든 아키텍처를 전면 재작성해야 하므로 기존 투자 자산을 활용하고자 하는 요구사항에 맞지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
@@ -137,7 +152,7 @@
     <button class="opt">함수의 메모리 설정을 크게 늘려 줌</button>
     <button class="opt">제한 시간을 최대인 900초로 늘림</button>
   </div>
-  <div class="feedback"><p>Lambda는 CPU를 <strong>메모리에 비례해</strong> 할당하며, vCPU를 따로 설정하는 항목은 없습니다. 메모리를 올리면 CPU도 함께 늘어 CPU 바운드 함수가 빨라집니다. 제한 시간을 늘리면 시간 초과는 피해도 속도는 그대로이고, 예약 동시성은 동시 실행 몫을 다루는 설정입니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>함수의 메모리 설정을 크게 늘려 주는 것</strong>입니다. AWS Lambda에서는 CPU 코어 수를 별도로 지정하는 독립된 설정 옵션이 존재하지 않습니다. 대신 할당한 메모리 용량에 비례하여 CPU 파워가 선형적으로 자동 배정됩니다 (약 1,769 MB 메모리 할당 시 vCPU 1개 상당 부여). 따라서 CPU 연산 병목으로 처리가 지연되는 함수는 메모리 할당량을 증설하면 CPU 성능도 함께 강력해져 전체 실행 시간을 대폭 단축시킬 수 있습니다. 제한 시간을 늘리는 것은 타임아웃 에러를 방지할 뿐 처리 속도 자체를 개선하지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0,3">
@@ -148,7 +163,7 @@
     <button class="opt">호스트 OS의 AMI를 직접 골라 패치해야 함</button>
     <button class="opt">작업마다 ENI와 IAM 역할을 받을 수 있음</button>
   </div>
-  <div class="feedback"><p>Fargate는 EC2 인스턴스 없이 컨테이너를 돌리는 서버리스 엔진이고, 작업마다 VPC 안의 ENI와 작업 수준 IAM 역할을 받습니다. GPU는 지원하지 않으며, GPU가 필요하면 EC2 시작 유형(또는 ECS Managed Instances)을 씁니다. AMI를 고르고 패치하는 것은 EC2 시작 유형의 일입니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>EC2 인스턴스를 프로비저닝·패치할 필요 없음</strong>과 <strong>작업마다 ENI와 IAM 역할을 받을 수 있음</strong>입니다. AWS Fargate는 컨테이너를 위한 완전 관리형 서버리스 컴퓨팅 엔진으로, 사용자가 기본 가상 머신(EC2)을 프로비저닝하거나 OS 보안 패치를 적용할 필요가 전혀 없습니다. 또한 <code>awsvpc</code> 네트워크 모드를 통해 실행되는 각 작업(Task)마다 VPC 내의 전용 탄력적 네트워크 인터페이스(ENI)와 프라이빗 IP가 부여되며, 작업 수준에서 세분화된 Task IAM Role을 독립적으로 연결할 수 있습니다. 주의할 점은 Fargate는 GPU 가속을 지원하지 않는다는 것입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
@@ -159,7 +174,7 @@
     <button class="opt">함수의 제한 시간을 최대로 늘려 둠</button>
     <button class="opt">계정 동시성 한도 증가를 요청해 둠</button>
   </div>
-  <div class="feedback"><p>프로비저닝된 동시성은 실행 환경을 <strong>미리 초기화</strong>해 두어 콜드 스타트를 없앱니다(추가 요금). 예약 동시성은 몫과 상한을 정할 뿐 환경을 미리 데우지 않으므로 콜드 스타트는 그대로입니다. 동시성 한도 증가는 스로틀링 문제의 해법입니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>함수에 프로비저닝된 동시성을 구성하는 것</strong>입니다. 프로비저닝된 동시성(Provisioned Concurrency)은 지정된 수량만큼의 실행 환경 컨테이너를 사전에 미리 초기화하고 웜업(Warm-up) 상태로 유지함으로써, 트래픽 유입 시 즉각 두 자릿수 밀리초 이내의 응답을 반환하여 콜드 스타트를 완벽히 제거합니다. 반면 예약 동시성은 특정 함수가 사용할 수 있는 동시 실행 인스턴스의 '상한선과 전용 슬롯'을 지정할 뿐, 컨테이너 환경을 미리 초기화해 두지 않으므로 최초 호출 시의 콜드 스타트를 해결할 수 없습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
@@ -170,7 +185,7 @@
     <button class="opt">Compute Savings Plans를 1년간 구매</button>
     <button class="opt">Standard 리전 예약 인스턴스를 1년 약정 구매</button>
   </div>
-  <div class="feedback"><p>Compute Savings Plans만 EC2 사용량과 함께 <strong>Fargate와 Lambda</strong>에도 적용되고, 패밀리·리전이 바뀌어도 할인이 이어집니다. EC2 Instance Savings Plans와 RI는 EC2 인스턴스에만 해당합니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>Compute Savings Plans를 1년간 구매</strong>하는 것입니다. Savings Plans 상품 중 'Compute Savings Plans'만이 EC2 인스턴스 사용량뿐만 아니라 <strong>AWS Fargate와 AWS Lambda 컴퓨팅 사용량에도 자동으로 적용</strong>됩니다. 또한 인스턴스 패밀리, 운영체제(OS), 심지어 리전을 변경하더라도 할인 혜택이 유연하게 유지됩니다. 반면 EC2 Instance Savings Plans나 예약 인스턴스(RI)는 오직 EC2 인스턴스에만 적용되며 Fargate나 Lambda에는 적용되지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
@@ -181,30 +196,30 @@
     <button class="opt">Fargate 작업의 메모리를 최대로 올려 둠</button>
     <button class="opt">GPU 인스턴스 기반 ECS EC2 시작 유형</button>
   </div>
-  <div class="feedback"><p>Fargate는 GPU를 지원하지 않고, AWS 문서도 GPU 같은 특수 하드웨어가 필요하면 EC2 인스턴스를 쓰라고 안내합니다. Lambda나 Fargate의 메모리를 올려도 CPU·메모리가 늘 뿐 GPU가 생기지 않습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>GPU 인스턴스 기반 ECS EC2 시작 유형</strong>을 사용하는 것입니다. AWS Fargate는 현재 GPU 가속을 지원하지 않으므로, 기계학습 모델 추론이나 고성능 그래픽 처리를 위해 GPU 하드웨어가 필수적인 컨테이너 워크로드는 반드시 EC2 시작 유형(EC2 Launch Type, 예: G4dn, G5, P4 인스턴스 등)을 선택해야 합니다. Lambda나 Fargate의 메모리 할당량을 아무리 최대로 올리더라도 범용 CPU와 메모리 용량만 증설될 뿐 전용 GPU 가속기가 장착되지는 않습니다.</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) Lambda의 핵심 한도 세 가지(제한 시간, 메모리-CPU 관계, 기본 동시성)는? (2) 예약 동시성과 프로비저닝된 동시성은 각각 어떤 문제를 푸나? (3) ECS vs EKS, Fargate vs EC2 시작 유형을 고르는 기준은?</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
-  <button data-reveal>답 확인</button>
+  <p>교재를 보지 말고 기억을 떠올려 직접 정리해 보세요. (1) Lambda의 세 가지 핵심 제약 사항(최대 실행 제한 시간, 메모리와 CPU의 비례 관계, 기본 동시성 한도)은 무엇인가요? (2) 예약 동시성과 프로비저닝된 동시성은 각각 어떤 구체적인 기술 문제를 해결하나요? (3) 컨테이너 오케스트레이터(ECS vs EKS)와 컴퓨팅 모델(Fargate vs EC2 시작 유형)을 선택하는 핵심 기준은 무엇인가요?</p>
+  <textarea placeholder="여기에 직접 적어 보세요. 개념을 머릿속에서 직접 구조화하는 과정이 실전 응용력을 키워줍니다."></textarea>
+  <button data-reveal>정답 확인하기</button>
   <div class="answer">
-    <p>(1) 제한 시간 기본 3초·최대 900초(15분). 메모리 128 MB~10,240 MB, CPU는 메모리에 비례(1,769 MB ≈ vCPU 1개). 계정 동시성 리전당 기본 1,000.</p>
-    <p>(2) 예약: 함수 몫을 떼어 주고 상한을 둠 → 다른 함수 때문에 스로틀링, 다운스트림 보호. 무료. 프로비저닝: 실행 환경을 미리 초기화 → 콜드 스타트 제거. 유료.</p>
-    <p>(3) ECS: AWS 네이티브, 낮은 운영 부담. EKS: Kubernetes API·생태계·이식성. Fargate: 서버 관리 없음, GPU 없음. EC2 시작 유형: GPU·특정 인스턴스·사용자 지정 AMI·특권 기능.</p>
+    <p>(1) <strong>최대 실행 제한 시간</strong>: 기본 3초, 최대 900초(15분). 15분 초과 작업은 Lambda 실행 불가. <strong>메모리-CPU 관계</strong>: 128 MB ~ 10,240 MB, CPU는 별도 설정 없이 메모리 크기에 비례하여 자동 배정(1,769 MB = 1 vCPU). <strong>기본 동시성</strong>: 리전당 계정 기본 1,000 (초과 시 429 스로틀링 발생).</p>
+    <p>(2) <strong>예약 동시성</strong>: 계정 동시성 풀에서 특정 함수 전용 몫을 분리 예약하여, 다른 함수의 트래픽 폭주로부터 핵심 함수를 보호하고, 과도한 동시 실행으로 다운스트림 DB(RDS)가 마비되는 것을 방지(비용 무료). <strong>프로비저닝된 동시성</strong>: 실행 컨테이너 환경을 미리 웜업 초기화해 두어 최초 호출 시 발생하는 콜드 스타트 지연을 완전히 제거(시간당 추가 요금 발생).</p>
+    <p>(3) <strong>ECS vs EKS</strong>: ECS는 AWS 네이티브로 운영 오버헤드가 극히 적고 AWS 서비스와 단순하게 결합됨. EKS는 표준 Kubernetes 생태계, Helm 매니페스트 자산 활용 및 멀티클라우드 이식성이 필요할 때 선택. <strong>Fargate vs EC2 시작 유형</strong>: Fargate는 EC2 관리 없는 서버리스이나 GPU를 미지원함. EC2 시작 유형은 GPU 등 특수 하드웨어, 특권 컨테이너, 커스텀 AMI가 필요할 때 필수 선택.</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/decision-guides/latest/containers-on-aws-how-to-choose/choosing-aws-container-service.html">"Choosing an AWS container service"</a> 결정 가이드의 "Choose" 절, 그리고 Lambda의 <a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html">"Understanding Lambda function scaling"</a>. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (선택, 사실상 무료)</strong>: Lambda 콘솔에서 Python "Hello world" 함수를 만들고 메모리를 128 MB와 1,769 MB로 바꿔 가며 같은 반복 계산의 실행 시간(Duration)을 비교해 보세요. 프리 티어 범위 안의 소량 호출이면 비용은 거의 없습니다.</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>1차 공식 문서 (권장 읽기, 약 10분)</strong>: AWS 공식 아키텍처 결정 가이드인 <a href="https://docs.aws.amazon.com/decision-guides/latest/containers-on-aws-how-to-choose/choosing-aws-container-service.html">"Choosing an AWS container service"</a> 가이드의 'Choose' 섹션, 그리고 Lambda 설명서의 <a href="https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html">"Understanding Lambda function scaling and concurrency"</a> 문서를 꼭 읽어 보세요. (한국어 번역본은 URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>를 추가하면 열람 가능합니다.)</p>
+<p><strong>핸즈온 실습 (선택, 완전 무료 범위)</strong>: AWS Lambda 콘솔에서 Python 기반의 단순한 "Hello World" 함수를 생성해 보세요. 메모리를 최소인 128 MB로 설정했을 때와 1,769 MB(1 vCPU 상당)로 증설했을 때, 동일한 반복 연산(예: 소수 계산 루프)을 수행하여 실행 시간(Duration)과 비용 메트릭이 CloudWatch Logs에서 어떻게 달라지는지 직접 확인해 보세요. 프리 티어 범위 내에서 몇 번의 테스트 호출은 비용이 전혀 발생하지 않습니다.</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. 컴퓨팅 단원(0010~0013)이 여기서 끝나므로, 헷갈리는 비교(예: Compute SP vs EC2 Instance SP, 예약 vs 프로비저닝된 동시성)가 있으면 지금 물어봐 주세요. 다음 0014부터는 이 컴퓨팅들을 SQS·SNS·EventBridge로 느슨하게 연결합니다.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>퀴즈 점수와 헷갈렸던 문제가 있다면 편하게 남겨 주세요! 이번 레슨으로 컴퓨팅 핵심 영역(0010 EC2 요금제, 0011 ELB, 0012 ASG, 0013 Lambda/컨테이너)이 완성되었습니다. 혹시 Compute SP와 EC2 Instance SP의 차이나 예약 동시성과 프로비저닝된 동시성의 구분이 명확하지 않으시다면 질문해 주세요. 다음 레슨 0014부터는 이 컴퓨팅 구성 요소들을 SQS, SNS, EventBridge로 느슨하게 결합하는 강력한 비동기 복원력 아키텍처로 나아갑니다.</p>
 </div>
 
 <h3>출처</h3>

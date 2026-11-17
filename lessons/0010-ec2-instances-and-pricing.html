@@ -10,224 +10,245 @@
 <main>
 
 <p class="kicker">레슨 0010 · 도메인 4 비용 최적화 (20%) · Task 4.2 · 2.1/3.2 연계</p>
-<h1>같은 서버, 다른 청구서:<br>EC2 인스턴스 패밀리와 구매 옵션</h1>
-<p class="lede">EC2 문제의 절반은 "어떤 인스턴스를", 나머지 절반은 "어떻게 사서" 돌릴지입니다. 오늘은 인스턴스 이름 읽는 법, 구매 옵션 일곱 가지, 배치 그룹 세 가지, 최대 절전을 한 번에 정리합니다.</p>
-<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 워크로드를 보고 구매 옵션 고르기, 시나리오 8문항</span><span>📌 <a href="../reference/compute.html">컴퓨팅 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+<h1>같은 서버, 다른 청구서:<br>EC2 인스턴스 패밀리와 구매 옵션 완벽 정복</h1>
+<p class="lede">Amazon EC2 관련 시험 문제와 실무 아키텍처 설계의 절반은 "어떤 워크로드에 어떤 인스턴스 패밀리(유형)를 매칭할 것인가?"이고, 나머지 절반은 "그 인스턴스를 어떤 구매 옵션(Pricing Model)으로 조달하여 비용 효율성을 극대화할 것인가?"입니다. 이번 레슨에서는 복잡해 보이는 EC2 인스턴스 명명 규칙을 한눈에 해독하는 법부터, 워크로드별 인스턴스 패밀리(C, M, R, T, I 등), 핵심 구매 옵션(온디맨드, Savings Plans, 예약 인스턴스, 스팟, 전용 호스트, 용량 예약), 하드웨어 물리 배치를 결정하는 세 가지 배치 그룹, 그리고 메모리 상태를 보존하는 최대 절전(Hibernation)까지 원리부터 명쾌하게 정리합니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 워크로드 시나리오별 최적의 인스턴스 및 구매 옵션 도출, 8문항 완전 정복</span><span>📌 <a href="../reference/compute.html">컴퓨팅 치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
 
-<h2>왜 이것부터인가</h2>
-<p><strong>시험에서</strong>: "가장 비용 효율적인" 문제의 단골 무대가 EC2 구매 옵션입니다. 워크로드 설명(상시/간헐/중단 가능)만 보고 답을 고르게 출제됩니다.<br>
-<strong>실무에서</strong>: 같은 인스턴스라도 구매 방식에 따라 청구서가 크게 달라집니다. 약정 할인을 잘못 사면 몇 년 동안 되돌릴 수 없습니다.</p>
+<h2>왜 EC2 인스턴스 패밀리와 구매 옵션을 배워야 할까요?</h2>
+<p><strong>시험 관점</strong>: "가장 비용 효율적인(Most cost-effective) 아키텍처를 설계하라"는 유형의 단골 무대가 바로 EC2 구매 옵션입니다. 문제에 주어지는 워크로드의 특성(연중무휴 24/7 상시 운영, 단기적이고 예측 불가, 작업 중단 허용 여부, 특정 라이선스 준수 필요 등)만 보고 10초 안에 정확한 답을 도출할 수 있어야 합니다.<br>
+<strong>실무 관점</strong>: 완전히 동일한 vCPU와 메모리 스펙을 가진 가상 서버라도, 구매 옵션을 어떻게 조합하느냐에 따라 매달 청구서의 금액이 최대 70~90%까지 차이 납니다. 특히 1년이나 3년 장기 약정을 워크로드 성격에 맞지 않게 체결하면 되돌릴 수 없는 막대한 비용 손실이 발생하므로, 각 구매 옵션의 유연성과 제약 사항을 정확히 꿰뚫고 있어야 합니다.</p>
 
-<h2>인스턴스 이름 읽기</h2>
-<p><code>c7gn.xlarge</code>를 쪼개면 <strong>시리즈</strong> <code>c</code>, <strong>세대</strong> <code>7</code>, <strong>옵션</strong> <code>gn</code>, 그리고 마침표 뒤의 <strong>크기</strong> <code>xlarge</code>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ec2/latest/instancetypes/instance-type-names.html">[1]</a></sup> 자주 보는 글자만 외워 두면 됩니다.</p>
+<h2>EC2 인스턴스 명명 규칙: 이름만 보고 스펙 파악하기</h2>
+<p>EC2 인스턴스 이름은 복잡해 보이지만 규칙적인 조합으로 구성되어 있습니다. 예를 들어 <code>c7gn.xlarge</code>라는 인스턴스 유형은 <strong>인스턴스 패밀리(시리즈)</strong> <code>c</code>, <strong>세대 번호</strong> <code>7</code>, <strong>추가 하드웨어 기능 속성</strong> <code>gn</code>, 그리고 마침표 뒤의 <strong>인스턴스 크기</strong> <code>xlarge</code>로 나뉩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ec2/latest/instancetypes/instance-type-names.html">[1]</a></sup> 핵심 글자들의 의미만 익혀두면 이름만 보고도 최적의 용도를 즉시 판별할 수 있습니다.</p>
 <table>
-<tr><th>시리즈</th><th>뜻</th><th>옵션 글자</th><th>뜻</th></tr>
-<tr><td><code>M</code></td><td>범용</td><td><code>g</code></td><td>AWS Graviton(Arm) 프로세서</td></tr>
-<tr><td><code>T</code></td><td>버스트 가능 성능</td><td><code>a</code> / <code>i</code></td><td>AMD / Intel 프로세서</td></tr>
-<tr><td><code>C</code></td><td>컴퓨팅 최적화</td><td><code>d</code></td><td>인스턴스 스토어 볼륨 포함</td></tr>
-<tr><td><code>R</code>, <code>X</code></td><td>메모리 최적화 / 메모리 집약</td><td><code>n</code></td><td>네트워크·EBS 최적화</td></tr>
-<tr><td><code>I</code>, <code>D</code></td><td>스토리지 최적화 / 고밀도 스토리지</td><td><code>e</code></td><td>추가 스토리지·메모리·GPU 메모리</td></tr>
-<tr><td><code>P</code>, <code>G</code>, <code>Inf</code>, <code>Trn</code></td><td>GPU 가속 / 그래픽 / Inferentia / Trainium</td><td><code>z</code></td><td>높은 CPU 주파수</td></tr>
+<tr><th>패밀리 (시리즈)</th><th>핵심 의미</th><th>추가 속성 글자</th><th>하드웨어 속성 및 의미</th></tr>
+<tr><td><code>M</code></td><td>범용 (General Purpose) - 컴퓨팅·메모리·네트워크의 균형</td><td><code>g</code></td><td>AWS Graviton (Arm 기반) 고효율 자체 프로세서 탑재</td></tr>
+<tr><td><code>T</code></td><td>버스트 가능 성능 (Burstable) - CPU 크레딧 기반</td><td><code>a</code> / <code>i</code></td><td>AMD 프로세서 탑재 / Intel 프로세서 탑재</td></tr>
+<tr><td><code>C</code></td><td>컴퓨팅 최적화 (Compute Optimized) - 높은 연산 처리 능력</td><td><code>d</code></td><td>초고속 로컬 NVMe SSD 인스턴스 스토어 볼륨 포함</td></tr>
+<tr><td><code>R</code>, <code>X</code></td><td>메모리 최적화 (Memory) / 초대용량 메모리 집약 워크로드</td><td><code>n</code></td><td>강화된 네트워크 대역폭 (최대 100Gbps) 및 EBS 최적화</td></tr>
+<tr><td><code>I</code>, <code>D</code></td><td>스토리지 최적화 (Storage) / 초고밀도 로컬 디스크 스토리지</td><td><code>e</code></td><td>추가 확장 용량 (스토리지, 메모리, GPU 메모리 등)</td></tr>
+<tr><td><code>P</code>, <code>G</code>, <code>Inf</code>, <code>Trn</code></td><td>GPU 가속 / 그래픽 처리 / Inferentia(추론) / Trainium(학습)</td><td><code>z</code></td><td>매우 높은 CPU 고주파수 (클럭 속도) 코어 탑재</td></tr>
+</table>
+<p class="muted" style="font-size:.9rem">세대 번호(예: c5, c6, c7)는 숫자가 높을수록 최신 하드웨어 세대이며, 더 뛰어난 성능과 우수한 가격 대비 효율(가성비)을 제공합니다. 마침표 뒤의 크기(nano, micro, small, medium, large, xlarge, 2xlarge, ...)는 vCPU와 RAM이 정비례하여 규격화되어 증가합니다.</p>
+
+<h2>인스턴스 패밀리: 워크로드의 특성에 맞게 선택하기</h2>
+<p>애플리케이션 워크로드가 어떤 자원을 가장 많이 소모하느냐에 따라 적합한 인스턴스 패밀리가 결정됩니다.<sup class="cite"><a href="https://aws.amazon.com/ec2/instance-types/">[2]</a></sup></p>
+<table>
+<tr><th>범주</th><th>특화된 최적화 영역</th><th>전형적인 워크로드 사례 (AWS 공식 가이드 기준)</th></tr>
+<tr><td><strong>범용 (General Purpose)</strong><br>(M, T 패밀리)</td><td>컴퓨팅, 메모리, 네트워킹 리소스가 고르게 균형을 이룸</td><td>웹 애플리케이션 서버, 백엔드 마이크로서비스, 개발/테스트 환경, 중소형 데이터베이스, 코드 저장소</td></tr>
+<tr><td><strong>컴퓨팅 최적화 (Compute)</strong><br>(C 패밀리)</td><td>고성능 프로세서 탑재, vCPU당 가격 효율성 극대화 (CPU 바운드 작업)</td><td>고성능 웹 서버, 일괄 일괄 처리(Batch Processing), 미디어 트랜스코딩/인코딩, 과학적 모델링, 전용 게임 서버</td></tr>
+<tr><td><strong>메모리 최적화 (Memory)</strong><br>(R, X, U 패밀리)</td><td>대규모 데이터 세트를 메모리 상에서 초고속으로 처리</td><td>인메모리 캐시 및 데이터베이스(Redis, Memcached), 오픈소스 관계형 DB, SAP HANA, 실시간 인메모리 빅데이터 분석</td></tr>
+<tr><td><strong>스토리지 최적화 (Storage)</strong><br>(I, D, H 패밀리)</td><td>초당 수백만 회의 초저지연 직접 랜덤 읽기/쓰기(I/O) 성능 제공</td><td>초고성능 NoSQL 데이터베이스(Apache Cassandra, MongoDB), 데이터 웨어하우스(Elasticsearch), 분산 파일 시스템</td></tr>
+<tr><td><strong>가속 컴퓨팅 (Accelerated)</strong><br>(P, G, Inf, Trn 패밀리)</td><td>하드웨어 가속기(NVIDIA GPU, AWS 전용 칩셋)를 통한 대규모 병렬 연산</td><td>인공지능(AI) 딥러닝 모델 훈련 및 추론, 머신러닝, 3D 그래픽 렌더링, 자율주행 시뮬레이션, 유전체 분석</td></tr>
+<tr><td><strong>HPC 최적화 (Hpc)</strong></td><td>대규모 고성능 컴퓨팅(HPC) 클러스터를 위한 가성비 최적화</td><td>복잡한 유체 역학 시뮬레이션, 기상 예측, 충돌 시뮬레이션</td></tr>
 </table>
 
-<h2>패밀리 = 워크로드의 모양</h2>
-<table>
-<tr><th>범주</th><th>무엇에 최적화</th><th>AWS가 드는 예</th></tr>
-<tr><td><strong>범용</strong> (M, T)</td><td>컴퓨팅·메모리·네트워크의 균형</td><td>웹 서버, 코드 저장소, 중소형 DB</td></tr>
-<tr><td><strong>컴퓨팅 최적화</strong> (C)</td><td>고성능 프로세서가 필요한 CPU 바운드 작업</td><td>배치 처리, 미디어 트랜스코딩, 게임 서버</td></tr>
-<tr><td><strong>메모리 최적화</strong> (R, X, U)</td><td>큰 데이터 세트를 메모리에서 처리</td><td>인메모리 DB, 데이터 분석</td></tr>
-<tr><td><strong>스토리지 최적화</strong> (I, D, H)</td><td>저지연 랜덤 I/O를 초당 수백만 회</td><td>고처리량 DB, 데이터 스트리밍</td></tr>
-<tr><td><strong>가속 컴퓨팅</strong> (P, G, Inf, Trn)</td><td>하드웨어 가속기(GPU 등)로 연산</td><td>부동소수점 계산, 그래픽 처리</td></tr>
-<tr><td><strong>HPC 최적화</strong> (Hpc)</td><td>대규모 HPC의 가격 대비 성능</td><td>복잡한 시뮬레이션, 딥러닝</td></tr>
-</table>
-<p class="muted" style="font-size:.9rem">설명과 예시는 AWS 인스턴스 유형 페이지 기준입니다.<sup class="cite"><a href="https://aws.amazon.com/ec2/instance-types/">[2]</a></sup> <code>T</code> 인스턴스는 기준 CPU 성능을 제공하고 <strong>CPU 크레딧</strong>으로 기준 이상 버스트합니다. 기준 아래에서 쉬면 크레딧이 쌓이고, 버스트하면 소모됩니다. 개발·테스트 환경, 소규모 웹 서버처럼 평소에 한가한 워크로드용입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ec2/latest/instancetypes/instance-types.html">[3]</a></sup></p>
+<h3>T 시리즈의 핵심 원리: CPU 크레딧과 버스터블 성능</h3>
+<p><code>T</code> 인스턴스(T3, T4g 등)는 평소에는 정해진 <strong>기본 CPU 성능(Baseline)</strong>을 제공하며, CPU 사용률이 기준치 아래로 내려가 한가할 때는 <strong>CPU 크레딧</strong>을 계정에 지속적으로 저축합니다. 그러다 웹 트래픽이 일시적으로 급증하면 저축해 둔 CPU 크레딧을 소모하면서 기준치를 훨씬 넘어 100%까지 자유롭게 <strong>버스트(Burst)</strong>하여 요청을 지연 없이 빠르게 처리합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/ec2/latest/instancetypes/instance-types.html">[3]</a></sup> 따라서 평소에는 CPU 사용량이 낮고 간헐적으로 트래픽 스파이크가 발생하는 개발/테스트 환경, 사내 소규모 웹 사이트 등에 최적의 비용 효율성을 제공합니다.</p>
 
-<h2>구매 옵션: 무엇을 약속하고 무엇을 얻나</h2>
+<h2>EC2 구매 옵션: 무엇을 약속하고 어떤 할인을 얻을까?</h2>
+<p>EC2는 사용 패턴과 예산 계획에 따라 다양한 방식으로 구매할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-purchasing-options.html">[4]</a></sup></p>
 <table>
-<tr><th>옵션</th><th>약속하는 것</th><th>얻는 것 · 핵심 제약</th></tr>
-<tr><td><strong>온디맨드</strong></td><td>없음</td><td>초 단위 과금(최소 60초). AWS 권장 용도는 <em>단기적이고 불규칙하며 중단되면 안 되는</em> 워크로드<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-on-demand-instances.html">[5]</a></sup></td></tr>
-<tr><td><strong>Savings Plans</strong></td><td>시간당 USD 사용 금액, 1년 또는 3년<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-purchasing-options.html">[4]</a></sup></td><td>아래 표 참고. AWS는 RI보다 Savings Plans를 <strong>권장</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-reserved-instances.html">[7]</a></sup></td></tr>
-<tr><td><strong>예약 인스턴스(RI)</strong></td><td>인스턴스 구성(유형·리전 등), 1년 또는 3년</td><td>물리 인스턴스가 아니라 일치하는 사용량에 붙는 <strong>청구 할인</strong>. 구매 후 취소 불가. 결제는 전체 선결제/부분 선결제/선결제 없음<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-reserved-instances.html">[7]</a></sup></td></tr>
-<tr><td><strong>Spot</strong></td><td>중단을 받아들임</td><td>남는 용량을 온디맨드 대비 최대 90% 할인<sup class="cite"><a href="https://aws.amazon.com/ec2/spot/">[11]</a></sup>. EC2가 용량을 회수하면 <strong>2분 전 알림</strong> 후 종료·중지·최대 절전<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[10]</a></sup></td></tr>
-<tr><td><strong>Dedicated Hosts</strong></td><td>물리 서버 한 대를 통째로</td><td>소켓·코어 가시성, 소켓/코어/VM 단위 기존 라이선스(BYOL)<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/dedicated-hosts-overview.html">[13]</a></sup></td></tr>
-<tr><td><strong>Dedicated Instances</strong></td><td>단일 고객 전용 하드웨어</td><td>인스턴스 단위 과금. 배치 제어·소켓 가시성은 없음<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/dedicated-hosts-overview.html">[13]</a></sup></td></tr>
-<tr><td><strong>용량 예약</strong> (On-Demand Capacity Reservations)</td><td>특정 AZ의 용량</td><td>즉시 사용형은 기간 약정 없음. <strong>할인은 없음</strong>, Savings Plans나 리전 RI와 결합해야 할인<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html">[14]</a></sup></td></tr>
+<tr><th>구매 옵션</th><th>사용자가 약속하는 것</th><th>얻는 혜택 및 핵심 제약 사항</th></tr>
+<tr><td><strong>온디맨드 (On-Demand)</strong></td><td>약정 없음 (언제든 생성/종료)</td><td>초 단위 종량제 과금(최소 60초). 할인 없음. <em>단기적이고 불규칙하며 작업이 중간에 중단되어서는 안 되는</em> 워크로드나 예측할 수 없는 신규 서비스에 권장<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-on-demand-instances.html">[5]</a></sup></td></tr>
+<tr><td><strong>Savings Plans</strong></td><td>1년 또는 3년 동안 <strong>시간당 일정 지출 금액(USD/시간)</strong> 약정<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[6]</a></sup></td><td>최대 66~72% 할인. AWS가 기존 예약 인스턴스(RI)보다 관리 편의성과 유연성이 뛰어나 <strong>공식적으로 가장 권장</strong>하는 약정 할인 방식<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-reserved-instances.html">[7]</a></sup></td></tr>
+<tr><td><strong>예약 인스턴스 (RI)</strong></td><td>1년 또는 3년 동안 특정 인스턴스 사양 또는 리전 약정</td><td>최대 72% 할인. 물리적 서버가 별도로 생기는 것이 아니라 청구서에서 사용량에 자동 적용되는 <strong>청구 할인 혜택</strong>. 결제는 전체 선결제, 부분 선결제, 선결제 없음 선택 가능<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-reserved-instances.html">[7]</a></sup></td></tr>
+<tr><td><strong>스팟 인스턴스 (Spot)</strong></td><td>언제든 발생할 수 있는 <strong>인스턴스 중단을 감수함</strong></td><td>AWS 데이터 센터의 여유 유휴 컴퓨팅 용량을 온디맨드 대비 <strong>최대 90% 할인</strong>된 가격으로 이용<sup class="cite"><a href="https://aws.amazon.com/ec2/spot/">[11]</a></sup>. AWS가 해당 용량을 필요로 할 때 회수되며, 회수 전 <strong>2분의 사전 경고 알림</strong> 제공<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[10]</a></sup></td></tr>
+<tr><td><strong>전용 호스트 (Dedicated Hosts)</strong></td><td>물리적 블레이드 서버 한 대를 고객 전용으로 통째로 임대</td><td>물리 서버의 소켓 수, 물리 코어 수에 대한 가시성 제공. 인스턴스가 항상 동일한 물리 호스트에 배치되도록 제어(호스트 선호도). <strong>소켓/코어 단위 기존 소프트웨어 라이선스(BYOL) 준수에 필수</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/dedicated-hosts-overview.html">[13]</a></sup></td></tr>
+<tr><td><strong>전용 인스턴스 (Dedicated Instances)</strong></td><td>단일 고객 전용 격리 하드웨어에서 인스턴스 실행</td><td>인스턴스 단위 과금. 다른 고객과 하드웨어를 공유하지 않는 물리적 격리만 제공하며, 소켓/코어 가시성이나 호스트 배치 제어는 지원되지 않음<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/dedicated-hosts-overview.html">[13]</a></sup></td></tr>
+<tr><td><strong>온디맨드 용량 예약 (ODCR)</strong></td><td>특정 가용 영역(AZ)의 물리적 용량 확보</td><td>기간 약정 없이 특정 AZ의 용량을 물리적으로 100% 예약. <strong>용량 예약 자체는 할인을 제공하지 않음</strong>(인스턴스를 켜지 않아도 온디맨드 요금 청구). 할인을 받으려면 Savings Plans나 리전 RI와 결합해야 함<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html">[14]</a></sup></td></tr>
 </table>
 
-<h3>Savings Plans 두 종류, RI 두 종류</h3>
+<h3>Savings Plans 두 종류 vs 예약 인스턴스(RI) 두 종류</h3>
+<p>시험에서 가장 헷갈리기 쉬운 약정 할인 상품들의 유연성과 제약 사항을 명확히 정리합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[6]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-reserved-instances.html">[7]</a></sup></p>
 <table>
-<tr><th></th><th>유연성</th><th>최대 할인</th></tr>
-<tr><td><strong>Compute Savings Plans</strong></td><td>패밀리·크기·리전·OS·테넌시 무관. <strong>Fargate와 Lambda에도 적용</strong></td><td>최대 66%<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[6]</a></sup></td></tr>
-<tr><td><strong>EC2 Instance Savings Plans</strong></td><td>한 리전의 특정 패밀리(예: 버지니아의 m5)에 약정. 그 안에서 크기·OS·테넌시 변경 자유</td><td>최대 72%<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[6]</a></sup></td></tr>
-<tr><td><strong>Standard RI</strong></td><td>수정(modify)만 가능, <strong>교환 불가</strong>. RI Marketplace에서 <strong>판매 가능</strong></td><td>RI 중 가장 큰 할인<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-reserved-instances.html">[7]</a></sup></td></tr>
-<tr><td><strong>Convertible RI</strong></td><td>패밀리·OS·테넌시가 다른 Convertible RI로 <strong>교환 가능</strong>(동일 이상 가치). 리전은 고정. Marketplace 판매 <strong>불가</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ri-convertible-exchange.html">[8]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ri-market-general.html">[9]</a></sup></td><td>Standard보다 낮음</td></tr>
+<tr><th>상품명</th><th>변경 유연성 (적용 범위)</th><th>최대 할인율 및 거래소 판매 여부</th></tr>
+<tr><td><strong>Compute Savings Plans</strong></td><td><strong>최고의 유연성</strong>: 인스턴스 패밀리(C→M), 인스턴스 크기, 리전, OS, 테넌시가 바뀌어도 자동 할인. 심지어 <strong>AWS Fargate(서버리스 컨테이너)와 AWS Lambda 사용량까지 자동으로 포괄 적용</strong></td><td>최대 66% 할인<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[6]</a></sup></td></tr>
+<tr><td><strong>EC2 Instance Savings Plans</strong></td><td>특정 리전의 특정 인스턴스 패밀리(예: 버지니아 북부의 m5)에 약정. 패밀리 내에서 인스턴스 크기, OS, 테넌시 변경은 자유로움</td><td>최대 72% 할인 (패밀리가 고정되는 대신 더 높은 할인)<sup class="cite"><a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">[6]</a></sup></td></tr>
+<tr><td><strong>Standard RI (표준 RI)</strong></td><td>패밀리 변경 불가. 가용 영역이나 크기 일부 수정(Modify)만 가능하며 <strong>타 패밀리로 교환 불가</strong>. 남는 약정은 RI Marketplace에서 타사에 <strong>판매 가능</strong></td><td>RI 상품 중 가장 높은 할인율<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-reserved-instances.html">[7]</a></sup></td></tr>
+<tr><td><strong>Convertible RI (전환형 RI)</strong></td><td>계약 기간 중 다른 인스턴스 패밀리, 다른 OS, 다른 테넌시의 Convertible RI로 <strong>도중에 교환(Exchange) 가능</strong> (단, 가치가 같거나 높아야 함). RI Marketplace <strong>판매 불가</strong><sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ri-convertible-exchange.html">[8]</a></sup><sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ri-market-general.html">[9]</a></sup></td><td>Standard RI보다 할인율이 다소 낮음</td></tr>
 </table>
-<p>함정 두 개: <strong>Spot은 Savings Plans 적용 대상이 아닙니다.</strong> Spot 사용액이 Compute Savings Plans 약정을 채우지도 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[10]</a></sup> 그리고 <strong>용량을 보장</strong>하는 것은 용량 예약과 <em>영역(zonal)</em> RI뿐입니다. 리전 RI와 Savings Plans는 할인만 줍니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html">[14]</a></sup></p>
-<p>Spot 중단 알림은 <strong>EventBridge 이벤트</strong>("EC2 Spot Instance Interruption Warning")와 <strong>인스턴스 메타데이터</strong>(<code>spot/instance-action</code>)로 전달됩니다. 중단 동작을 최대 절전으로 정하면 알림은 오지만 2분 유예는 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html">[12]</a></sup></p>
+
+<p><strong>반드시 기억해야 할 시험 함정 두 가지</strong>:</p>
+<ol>
+  <li><strong>스팟(Spot) 인스턴스는 Savings Plans 약정 적용 대상이 아닙니다</strong>. 스팟 사용 금액이 Compute Savings Plans 약정 시간을 채워주지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-instances.html">[10]</a></sup></li>
+  <li><strong>용량을 물리적으로 보장(Capacity Guarantee)하는 옵션</strong>은 오직 '온디맨드 용량 예약(Capacity Reservation)'과 '영역(Zonal) RI'뿐입니다. 일반적인 리전 단위 RI나 Savings Plans는 <strong>오직 요금 할인 혜택만</strong> 제공할 뿐, 해당 리전이나 AZ에 물리적 인스턴스 자리가 남아있음을 보장하지 않습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html">[14]</a></sup></li>
+</ol>
+<p>스팟 인스턴스 중단 경고는 <strong>Amazon EventBridge 이벤트</strong>("EC2 Spot Instance Interruption Warning")와 <strong>인스턴스 메타데이터 서비스(IMDS)</strong>(<code>spot/instance-action</code> 경로)를 통해 인스턴스에 전달됩니다. 애플리케이션은 이 2분의 골든타임 동안 진행 중인 작업의 상태를 저장하고 안전하게 세션을 종료해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html">[12]</a></sup></p>
 
 <figure>
 <svg viewBox="0 0 600 190" role="img" aria-label="워크로드 성격에 따른 구매 옵션 선택 흐름" style="width:100%;height:auto;font-family:var(--sans)">
   <defs><marker id="ah10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
   <rect x="10" y="70" width="120" height="50" rx="8" fill="none" stroke="var(--fg)"/>
   <text x="70" y="92" text-anchor="middle" font-size="13" fill="var(--fg)">워크로드</text>
-  <text x="70" y="110" text-anchor="middle" font-size="11" fill="var(--muted)">성격은?</text>
+  <text x="70" y="110" text-anchor="middle" font-size="11" fill="var(--muted)">성격과 패턴은?</text>
   <rect x="200" y="10" width="160" height="44" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/>
-  <text x="280" y="30" text-anchor="middle" font-size="12" fill="var(--fg)">중단돼도 다시 하면 됨</text>
-  <text x="280" y="46" text-anchor="middle" font-size="11" fill="var(--muted)">배치·분석·CI</text>
+  <text x="280" y="30" text-anchor="middle" font-size="12" fill="var(--fg)">중단되어도 재시작 가능</text>
+  <text x="280" y="46" text-anchor="middle" font-size="11" fill="var(--muted)">배치 작업, 빅데이터, CI/CD</text>
   <rect x="200" y="73" width="160" height="44" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
-  <text x="280" y="93" text-anchor="middle" font-size="12" fill="var(--fg)">상시·예측 가능 (프로덕션)</text>
-  <text x="280" y="109" text-anchor="middle" font-size="11" fill="var(--muted)">1~3년 계속 돈다</text>
+  <text x="280" y="93" text-anchor="middle" font-size="12" fill="var(--fg)">상시 예측 가능 (프로덕션)</text>
+  <text x="280" y="109" text-anchor="middle" font-size="11" fill="var(--muted)">1년~3년 연속 가동</text>
   <rect x="200" y="136" width="160" height="44" rx="8" fill="none" stroke="var(--rule)"/>
   <text x="280" y="156" text-anchor="middle" font-size="12" fill="var(--fg)">단기·불규칙·중단 불가</text>
-  <text x="280" y="172" text-anchor="middle" font-size="11" fill="var(--muted)">새 앱, 짧은 프로젝트</text>
-  <text x="440" y="37" font-size="13" fill="var(--fg)">→ Spot</text>
-  <text x="440" y="92" font-size="13" fill="var(--fg)">→ Savings Plans / RI</text>
-  <text x="440" y="108" font-size="11" fill="var(--muted)">AZ 용량 보장까지: + 용량 예약</text>
-  <text x="440" y="163" font-size="13" fill="var(--fg)">→ 온디맨드</text>
+  <text x="280" y="172" text-anchor="middle" font-size="11" fill="var(--muted)">신규 앱 론칭, 짧은 테스트</text>
+  <text x="440" y="37" font-size="13" fill="var(--fg)">→ Spot 인스턴스 (최대 90% 할인)</text>
+  <text x="440" y="92" font-size="13" fill="var(--fg)">→ Savings Plans / RI 약정</text>
+  <text x="440" y="108" font-size="11" fill="var(--muted)">특정 AZ 용량 보장 필요 시: + 용량 예약</text>
+  <text x="440" y="163" font-size="13" fill="var(--fg)">→ 온디맨드 인스턴스</text>
   <line x1="130" y1="88" x2="196" y2="34" stroke="var(--muted)" marker-end="url(#ah10)"/>
   <line x1="130" y1="95" x2="196" y2="95" stroke="var(--muted)" marker-end="url(#ah10)"/>
   <line x1="130" y1="102" x2="196" y2="156" stroke="var(--muted)" marker-end="url(#ah10)"/>
 </svg>
 </figure>
 
-<h2>배치 그룹: 가까이, 흩어서, 나눠서</h2>
+<h2>EC2 배치 그룹 (Placement Groups): 인스턴스를 어디에 놓을 것인가?</h2>
+<p>배치 그룹은 여러 EC2 인스턴스가 물리적인 AWS 하드웨어 인프라 상에서 어떻게 배치될지를 제어하는 고급 구성 전략입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-strategies.html">[15]</a></sup></p>
 <table>
-<tr><th></th><th>클러스터 (cluster)</th><th>분산 (spread)</th><th>파티션 (partition)</th></tr>
-<tr><td>목표</td><td>낮은 네트워크 지연·높은 처리량</td><td>소수의 핵심 인스턴스를 서로 다른 하드웨어에</td><td>대규모 분산 시스템의 상관 장애 격리</td></tr>
-<tr><td>범위</td><td><strong>단일 AZ</strong></td><td>여러 AZ 가능, <strong>AZ당 실행 인스턴스 최대 7개</strong></td><td>여러 AZ 가능, <strong>AZ당 파티션 최대 7개</strong> (인스턴스 수는 계정 한도까지)</td></tr>
-<tr><td>대표 예</td><td>HPC, 노드 간 통신이 많은 작업</td><td>장애가 동시에 나면 안 되는 서버 몇 대</td><td>HDFS, HBase, Cassandra (토폴로지 인식)</td></tr>
+<tr><th>비교 항목</th><th>클러스터 배치 그룹 (Cluster)</th><th>분산 배치 그룹 (Spread)</th><th>파티션 배치 그룹 (Partition)</th></tr>
+<tr><td>배치 목표</td><td>인스턴스들을 최대한 가까운 물리적 랙에 모아 <strong>극도의 초저지연 및 고대역폭 네트워크 통신</strong> 달성</td><td>소수의 핵심 인스턴스들을 <strong>서로 다른 물리 랙(독립된 전원·네트워크)에 분산</strong>시켜 하드웨어 동시 장애 방지</td><td>대규모 분산 시스템을 여러 논리적 파티션으로 나누고, <strong>파티션마다 물리 랙을 분리</strong>하여 장애 도메인 격리</td></tr>
+<tr><td>배치 범위 및 한계 수량</td><td><strong>단일 가용 영역(AZ) 내에서만 가능</strong> (리전이나 다중 AZ 불가)</td><td>다중 AZ 지원. 단, <strong>가용 영역(AZ)당 실행 가능한 인스턴스가 최대 7개</strong>로 엄격히 제한됨</td><td>다중 AZ 지원. <strong>AZ당 최대 7개 파티션</strong> 지원 (파티션 내부의 인스턴스 수는 계정 한도 내 수백 대 가능)</td></tr>
+<tr><td>전형적인 사용 사례</td><td>HPC(고성능 컴퓨팅), 긴밀히 연결된 노드 간 통신이 많은 과학 연산</td><td>절대로 동시에 다운되면 안 되는 소수의 핵심 애플리케이션 인스턴스, DB 마스터/스탠바이</td><td>HDFS(Hadoop), Apache Cassandra, Kafka 등 데이터 복제 위치를 인식하는 분산 빅데이터 시스템</td></tr>
 </table>
-<p class="muted" style="font-size:.9rem">파티션마다 자체 랙(랙마다 네트워크·전원 분리)을 쓰고, 파티션끼리는 랙을 공유하지 않습니다. 클러스터 그룹은 한 번의 시작 요청으로, 같은 인스턴스 유형으로 채우는 것이 권장됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-strategies.html">[15]</a></sup></p>
 
-<h2>최대 절전 (hibernation)</h2>
-<p>최대 절전은 RAM 내용을 <strong>EBS 루트 볼륨</strong>에 저장하고 멈춥니다. 다시 시작하면 RAM이 다시 올라오고 프로세스가 이어서 실행되며, 인스턴스 ID도 유지됩니다. 부팅과 메모리 적재에 오래 걸리는 앱을 "미리 데워 두는" 용도입니다. 멈춰 있는 동안 인스턴스 사용료는 없고, RAM 내용을 포함한 EBS 스토리지 요금만 냅니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/Hibernate.html">[16]</a></sup></p>
-<p>조건: <strong>시작할 때</strong> 활성화해야 하며(기존 인스턴스에는 불가), 루트 볼륨은 인스턴스 스토어가 아닌 <strong>EBS</strong>여야 하고, <strong>암호화</strong>되어 있어야 합니다. RAM 크기도 제한이 있습니다(Linux 150 GiB 미만). 온디맨드와 Spot 모두 가능합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/hibernating-prerequisites.html">[17]</a></sup></p>
+<h2>EC2 최대 절전 모드 (Hibernation): 빠른 애플리케이션 재개</h2>
+<p>EC2 최대 절전(Hibernation) 모드는 인스턴스를 중지할 때 RAM(메모리)에 상주하던 운영체제 및 애플리케이션의 실행 상태를 그대로 <strong>EBS 루트 볼륨에 저장</strong>하고 전원을 끕니다. 나중에 인스턴스를 다시 시작하면, 부팅 및 초기화 과정을 처음부터 거치지 않고 EBS에 저장되어 있던 메모리 상태를 RAM으로 즉시 복원하여 이전 실행 상태 그대로 이어서 동작합니다. 인스턴스 ID, 프라이빗 IP 주소, Elastic IP 주소가 모두 그대로 유지됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/Hibernate.html">[16]</a></sup></p>
+<p>대규모 캐시를 메모리에 로드하거나 복잡한 애플리케이션 초기화(Warm-up)에 수십 분이 소요되는 워크로드를 빠르게 대기 상태로 유지하고 싶을 때 매우 유용합니다. 최대 절전 상태 동안에는 EC2 인스턴스 컴퓨팅 비용이 청구되지 않으며, RAM 내용을 포함한 EBS 볼륨 스토리지 요금만 발생합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/Hibernate.html">[16]</a></sup></p>
+<p><strong>최대 절전을 위한 필수 전제 조건 (시험 단골 체크리스트)</strong>:<sup class="cite"><a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/hibernating-prerequisites.html">[17]</a></sup></p>
+<ul>
+  <li>반드시 <strong>인스턴스를 처음 시작(Launch)할 때 최대 절전 옵션을 켜 두어야 합니다</strong>. 이미 실행 중이거나 중지된 기존 인스턴스에는 사후에 활성화할 수 없습니다.</li>
+  <li>루트 볼륨은 임시 인스턴스 스토어가 아닌 <strong>EBS 볼륨</strong>이어야 하며, RAM에 있던 민감한 데이터가 디스크에 기록되므로 <strong>EBS 루트 볼륨이 반드시 암호화</strong>되어 있어야 합니다.</li>
+  <li>인스턴스 RAM 크기 제한이 적용됩니다(대부분의 인스턴스 패밀리에서 지원되나 Linux 기준 150 GiB 미만 등). 온디맨드 및 스팟 인스턴스 모두 최대 절전을 지원합니다.</li>
+</ul>
 
 <div class="callout">
-<p class="label">시험 단골: 키워드 → 답</p>
+<p class="label">시험에 자주 나오는 핵심 패턴: 키워드 → 정답 매칭</p>
 <ul>
-<li>"중단돼도 됨", "유연한 시작 시간", "배치", "가장 저렴" → <strong>Spot</strong></li>
-<li>"1년/3년 상시", "꾸준한 사용량" + "인스턴스 패밀리·리전 변경 가능성", "Fargate/Lambda도" → <strong>Compute Savings Plans</strong></li>
-<li>"특정 패밀리 고정, 최대 할인" → <strong>EC2 Instance Savings Plans</strong> 또는 <strong>Standard RI</strong></li>
-<li>"특정 AZ에서 용량 확보", "약정 없이" → <strong>온디맨드 용량 예약</strong></li>
-<li>"소켓/코어 단위 라이선스", "규정상 물리 서버 가시성" → <strong>Dedicated Hosts</strong></li>
-<li>"단기, 예측 불가, 중단 불가" → <strong>온디맨드</strong></li>
-<li>"노드 간 저지연 HPC" → 클러스터 / "HDFS·Cassandra" → 파티션 / "핵심 서버 몇 대 분리" → 분산</li>
-<li>"부팅이 오래 걸리는 앱을 빨리 재개" → <strong>최대 절전</strong></li>
+  <li>"작업 중단 허용", "시작 시간 유연", "대규모 일괄 배치 작업", "비용 최소화" → <strong>스팟 인스턴스 (Spot)</strong></li>
+  <li>"1년 또는 3년 상시 가동", "인스턴스 패밀리 변경 가능성", "Fargate나 Lambda도 포괄 적용" → <strong>Compute Savings Plans</strong></li>
+  <li>"특정 리전과 특정 패밀리 고정", "약정 기간 동안 최대 할인율 필요" → <strong>EC2 Instance Savings Plans</strong> 또는 <strong>Standard RI</strong></li>
+  <li>"특정 AZ에서 반드시 인스턴스 용량 확보 보장", "단기 이벤트, 1년 미만" → <strong>온디맨드 용량 예약 (Capacity Reservation)</strong></li>
+  <li>"물리 코어/소켓 단위 기존 라이선스(BYOL) 준수", "물리 서버 규정 감사" → <strong>Dedicated Hosts (전용 호스트)</strong></li>
+  <li>"단기적, 불규칙한 트래픽, 작업 중단 불가" → <strong>온디맨드 (On-Demand)</strong></li>
+  <li>"노드 간 초저지연 HPC" → <strong>클러스터 배치 그룹</strong> / "AZ당 소수 핵심 서버 격리" → <strong>분산 배치 그룹</strong> / "HDFS, Cassandra 분산 랙 격리" → <strong>파티션 배치 그룹</strong></li>
+  <li>"부팅 및 메모리 초기화가 오래 걸리는 앱의 빠른 재개", "RAM 상태 EBS 저장" → <strong>최대 절전 (Hibernation)</strong></li>
 </ul>
 </div>
 
-<h2>연습</h2>
+<h2>실전 연습 문제</h2>
+<p>학습한 내용을 바탕으로 문제를 풀어보세요. 보기 길이는 실제 시험처럼 균형 있게 구성되어 있습니다.</p>
 
 <div class="quiz-q" data-answer="2">
-  <p class="q-title">Q1. 회사가 24시간 상시 운영되는 프로덕션 웹 서버(m5 패밀리)의 비용을 3년간 줄이려 합니다. 내년에 c 패밀리로 바꾸거나 일부를 Amazon ECS on Fargate로 옮길 수도 있습니다. 가장 적합한 방법은?</p>
+  <p class="q-title">Q1. (시험형) 한 기업이 24시간 연중무휴 상시 운영되는 프로덕션 웹 애플리케이션 서버(현재 m5 패밀리 인스턴스 20대)의 향후 3년간 인프라 비용을 최소화하려 합니다. 클라우드 아키텍처 팀은 내년 상반기 중에 컴퓨팅 파워를 더 강화하기 위해 c 패밀리로 인스턴스 유형을 변경하거나, 일부 백엔드 서비스를 Amazon ECS on AWS Fargate 컨테이너로 점진적으로 마이그레이션할 계획을 갖고 있습니다. 이 기업에 가장 적합한 비용 최적화 구매 옵션은 무엇인가요?</p>
   <div class="options">
     <button class="opt">EC2 Instance Savings Plans를 구매</button>
     <button class="opt">m5 패밀리의 Standard RI를 3년 약정해 구매</button>
     <button class="opt">Compute Savings Plans 3년 약정 구매</button>
     <button class="opt">프로덕션 웹 서버 전체를 Spot 인스턴스로 즉시 전환</button>
   </div>
-  <div class="feedback"><p>Compute Savings Plans는 패밀리·리전에 묶이지 않고 Fargate와 Lambda에도 적용됩니다. EC2 Instance Savings Plans는 할인은 더 크지만 <strong>특정 패밀리</strong>에 묶여 c 패밀리 이전이나 Fargate를 덮지 못합니다. Standard RI는 교환이 안 됩니다. 프로덕션 웹 서버를 전부 Spot에 올리면 중단 위험을 감수해야 합니다.</p></div>
+  <div class="feedback"><p>Compute Savings Plans는 인스턴스 패밀리(m5 → c 패밀리), 인스턴스 크기, OS, 리전 변경에 전혀 구애받지 않고 유연하게 할인을 적용해 주며, 무엇보다 AWS Fargate와 Lambda 사용량까지 자동으로 포괄 할인해 줍니다. EC2 Instance Savings Plans는 할인은 약간 더 높지만 특정 패밀리(m5)에 고정되므로 패밀리 변경이나 Fargate 마이그레이션 시 할인을 받지 못합니다. Standard RI는 패밀리 교환이 아예 불가능합니다. 상시 프로덕션 환경을 스팟 인스턴스로만 구성하면 예고 없는 중단으로 서비스 장애가 발생할 수 있습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q2. 매일 밤 로그를 처리하는 배치 작업이 있습니다. 작업은 체크포인트를 저장해 중단되어도 다시 시작할 수 있고, 아침까지만 끝나면 됩니다. 가장 비용 효율적인 구매 옵션은?</p>
+  <p class="q-title">Q2. (시험형) 매일 자정에 대용량 로그 데이터를 가공하고 집계하는 배치 처리 워크로드가 실행됩니다. 이 작업은 정기적으로 진행 상태를 S3에 체크포인트로 저장하도록 설계되어 있어 중간에 작업이 중단되더라도 중단된 지점부터 언제든 안전하게 재개할 수 있으며, 다음 날 아침 8시 업무 시작 전까지만 완료되면 충분합니다. 가장 비용 효율적인 EC2 구매 옵션은 무엇인가요?</p>
   <div class="options">
     <button class="opt">Spot 인스턴스로 실행</button>
     <button class="opt">온디맨드 인스턴스로 실행</button>
     <button class="opt">전용 호스트 위에서 실행</button>
     <button class="opt">3년 RI로 예약해 실행</button>
   </div>
-  <div class="feedback"><p>"중단 가능"과 "시작 시간 유연"이 Spot의 정의 그대로입니다. AWS 문서도 배치 작업과 데이터 분석을 Spot의 적합 사례로 듭니다. 매일 몇 시간만 도는 작업에 3년 약정(RI)은 놀리는 시간이 많아 손해이고, 온디맨드는 할인이 없으며, 전용 호스트는 라이선스·규정 요건이 있을 때 고르는 옵션입니다.</p></div>
+  <div class="feedback"><p>"작업 중단 허용(내결함성)", "유연한 실행 시간대", "체크포인트 저장 가능"은 스팟 인스턴스(Spot Instances)를 선택하는 가장 완벽한 시나리오 조건입니다. 온디맨드 대비 최대 90% 저렴합니다. 매일 몇 시간만 실행되는 배치 작업에 3년 장기 약정(RI)을 체결하면 유휴 시간 동안 비용이 낭비되며, 전용 호스트는 기존 상용 라이선스 규정을 준수할 때 사용하는 고비용 옵션입니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q3. 유체 역학 시뮬레이션을 수십 대의 EC2 인스턴스로 돌립니다. 노드끼리 끊임없이 데이터를 주고받아 네트워크 지연이 성능을 좌우합니다. 어떤 배치 그룹을 써야 하나요?</p>
+  <p class="q-title">Q3. (시험형) 항공기 날개 주변의 기류를 분석하는 복잡한 전산 유체 역학(CFD) 시뮬레이션 시스템을 수십 대의 고성능 EC2 인스턴스로 실행하려 합니다. 각 워커 노드들은 연산 과정에서 초당 수십 기가바이트의 중간 계산 데이터를 쉬지 않고 서로 주고받으므로, 노드 간 네트워크 지연 시간(Latency)이 전체 시뮬레이션 수행 시간을 결정합니다. 어떤 배치 그룹 전략을 사용해야 하나요?</p>
   <div class="options">
     <button class="opt">여러 AZ로 퍼뜨린 분산 배치 그룹</button>
     <button class="opt">AZ마다 7개씩인 파티션 배치 그룹</button>
     <button class="opt">리전 전체로 퍼뜨린 분산 배치 그룹</button>
     <button class="opt">단일 AZ 안의 클러스터 배치 그룹</button>
   </div>
-  <div class="feedback"><p>클러스터 배치 그룹은 한 AZ 안에서 인스턴스를 같은 고대역폭 네트워크 구간에 모아 지연을 낮추고 처리량을 높입니다. 분산과 파티션은 <em>장애 격리</em>가 목적이라 오히려 서로 떨어뜨립니다.</p></div>
+  <div class="feedback"><p>클러스터 배치 그룹(Cluster Placement Group)은 단일 가용 영역(AZ) 내부에서 인스턴스들을 물리적으로 가장 가까운 동일 랙 및 네트워크 스위치에 밀집 배치함으로써 최저의 네트워크 지연 시간과 최대의 네트워크 처리량을 제공합니다. 분산(Spread) 및 파티션(Partition) 배치 그룹은 하드웨어 장애를 격리하기 위해 오히려 인스턴스를 물리적으로 멀리 떨어뜨려 놓으므로 네트워크 지연이 증가합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q4. 수백 대 규모의 Apache Cassandra 클러스터를 EC2에 구축합니다. 랙 단위 하드웨어 장애가 복제본 전체로 번지지 않게 하고, 어떤 노드가 어떤 장애 영역에 있는지 애플리케이션이 알 수 있어야 합니다. 가장 적합한 것은?</p>
+  <p class="q-title">Q4. (시험형) 한 빅데이터 팀이 수백 대 규모의 Apache Cassandra NoSQL 분산 데이터베이스 클러스터를 EC2 위에 구축하려 합니다. 특정 랙 하드웨어에 전원이나 네트워크 장애가 발생하더라도 데이터 복제본이 동시에 손실되지 않아야 하며, 카산드라 애플리케이션이 어떤 노드가 어느 물리적 랙에 배치되어 있는지 토폴로지를 직접 인식할 수 있어야 합니다. 가장 적합한 구성은 무엇인가요?</p>
   <div class="options">
     <button class="opt">단일 AZ 클러스터 배치 그룹</button>
     <button class="opt">여러 AZ의 파티션 배치 그룹</button>
     <button class="opt">여러 AZ의 분산 배치 그룹들</button>
     <button class="opt">전용 호스트를 여러 대 할당함</button>
   </div>
-  <div class="feedback"><p>파티션 배치 그룹은 파티션마다 랙을 분리하고, 어떤 인스턴스가 어느 파티션에 있는지 보여 줘서 Cassandra·HDFS 같은 토폴로지 인식 시스템이 복제 위치를 정할 수 있습니다. 분산 배치 그룹도 하드웨어를 분리하지만 <strong>AZ당 실행 인스턴스 7개</strong>가 한계라 수백 대 클러스터에는 맞지 않습니다.</p></div>
+  <div class="feedback"><p>파티션 배치 그룹(Partition Placement Group)은 인스턴스 그룹을 여러 파티션으로 나누고 파티션마다 전용 물리 랙을 분리 배정합니다. 또한 인스턴스 메타데이터를 통해 각 인스턴스가 속한 파티션 번호를 노출하므로, Cassandra나 HDFS처럼 토폴로지를 인식하는 시스템이 데이터 복제본을 서로 다른 랙에 나누어 저장할 수 있습니다. 분산(Spread) 배치 그룹은 AZ당 실행 가능한 인스턴스가 최대 7개로 제한되므로 수백 대 규모의 대규모 클러스터에는 사용할 수 없습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1,2">
-  <p class="q-title">Q5. EC2 최대 절전(hibernation)을 쓰기 위한 조건으로 옳은 것을 두 개 고르세요.</p>
+  <p class="q-title">Q5. EC2 최대 절전(Hibernation) 기능을 성공적으로 사용하기 위한 필수 기술적 전제 조건으로 올바른 것을 <strong>두 개</strong> 고르세요.</p>
   <div class="options">
     <button class="opt">루트 볼륨이 인스턴스 스토어 볼륨일 것</button>
     <button class="opt">시작할 때 최대 절전 기능을 켜 둘 것</button>
     <button class="opt">EBS 루트 볼륨이 암호화되어 있을 것</button>
     <button class="opt">실행 중인 인스턴스에서도 나중에 켤 것</button>
   </div>
-  <div class="feedback"><p>RAM 내용이 루트 볼륨에 기록되므로 루트는 <strong>EBS</strong>이고 <strong>암호화</strong>되어 있어야 하며, 최대 절전은 <strong>시작 시점</strong>에만 켤 수 있습니다. 실행 중이든 중지 상태든 기존 인스턴스에는 나중에 켤 수 없습니다.</p></div>
+  <div class="feedback"><p>최대 절전 모드는 RAM 메모리의 내용을 디스크에 기록하므로, 루트 볼륨은 영구적인 <strong>EBS 볼륨</strong>이어야 하며 메모리의 민감한 데이터 유출을 방지하기 위해 <strong>반드시 암호화</strong>되어 있어야 합니다. 또한 최대 절전 옵션은 <strong>인스턴스를 최초로 시작(Launch)하는 시점에만 활성화</strong>할 수 있으며, 이미 실행 중이거나 정지된 기존 인스턴스에 사후 설정할 수 없습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
-  <p class="q-title">Q6. 회사가 물리 코어 단위로 라이선스가 매겨지는 기존 데이터베이스 소프트웨어를 AWS로 옮기려 합니다. 라이선스 준수를 위해 소켓과 물리 코어 수를 확인할 수 있어야 하고, 인스턴스를 같은 물리 서버에 계속 배치해야 합니다. 무엇을 써야 하나요?</p>
+  <p class="q-title">Q6. (시험형) 한 금융 회사가 기존 온프레미스에서 물리 CPU 소켓 및 코어 단위로 라이선스 비용이 청구되는 상용 상용 데이터베이스 엔진을 AWS EC2로 마이그레이션하려 합니다. 소프트웨어 라이선스 준수 감사를 통과하기 위해 서버의 물리 소켓 수와 물리 코어 수를 명확히 확인할 수 있어야 하고, 인스턴스를 재부팅하더라도 항상 동일한 물리 하드웨어 서버에 계속 머무르도록 배치해야 합니다. 어떤 옵션을 선택해야 하나요?</p>
   <div class="options">
     <button class="opt">Dedicated Instances로 실행</button>
     <button class="opt">On-Demand 용량 예약을 생성해 실행</button>
     <button class="opt">Standard RI를 3년 약정하여 실행</button>
     <button class="opt">Dedicated Hosts를 할당해 실행</button>
   </div>
-  <div class="feedback"><p>소켓·코어 가시성, 호스트 선호도(같은 물리 서버에 계속 배치), 소켓/코어 단위 BYOL은 <strong>Dedicated Hosts</strong>의 기능입니다. Dedicated Instances도 전용 하드웨어지만 소켓·코어 가시성과 호스트 선호도가 <strong>지원되지 않습니다</strong>. 이 차이가 시험의 핵심 함정입니다.</p></div>
+  <div class="feedback"><p>전용 호스트(Dedicated Hosts)는 물리 서버 한 대를 고객 전용으로 통째로 할당하므로, 물리적 소켓과 코어 수에 대한 가시성을 제공하고 인스턴스를 특정 호스트에 고정 배치(호스트 선호도)할 수 있어 소켓/코어 단위 기존 라이선스(BYOL) 준수에 필수적입니다. 전용 인스턴스(Dedicated Instances)도 물리적으로 격리된 전용 하드웨어에서 실행되지만, 소켓/코어 가시성이 없고 인스턴스 재부팅 시 다른 물리 서버로 이동할 수 있어 라이선스 감사 요건을 충족하지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
-  <p class="q-title">Q7. (복습 · 0002) EC2 인스턴스의 애플리케이션이 같은 계정의 DynamoDB 테이블에 써야 합니다. 보안 모범 사례에 맞는 방법은?</p>
+  <p class="q-title">Q7. (0002 복습 연계) EC2 인스턴스에서 구동되는 웹 애플리케이션이 동일한 계정 내의 Amazon DynamoDB 테이블에 데이터를 읽고 써야 합니다. AWS 보안 모범 사례에 부합하는 가장 안전하고 올바른 자격 증명 관리 아키텍처는 무엇인가요?</p>
   <div class="options">
     <button class="opt">필요 권한만 준 IAM 역할을 인스턴스 프로파일로 연결</button>
     <button class="opt">IAM 사용자의 장기 액세스 키를 사용자 데이터에 입력</button>
     <button class="opt">테이블에 Principal "*" 허용 정책을 붙여 둠</button>
     <button class="opt">루트 사용자의 액세스 키를 AMI에 넣어서 배포에 사용</button>
   </div>
-  <div class="feedback"><p>0002에서 본 대로 EC2 위 워크로드는 <strong>인스턴스 프로파일로 연결한 IAM 역할</strong>에서 자동 갱신되는 임시 자격 증명을 씁니다. 최소 권한으로 필요한 테이블과 작업만 허용하세요. 장기 키를 사용자 데이터나 AMI에 넣으면 유출 위험이 크고, 루트 키는 절대 쓰지 않습니다.</p></div>
+  <div class="feedback"><p>레슨 0002에서 다루었듯이, EC2 워크로드가 AWS 리소스와 통신할 때는 <strong>인스턴스 프로파일(Instance Profile)을 통해 IAM 역할을 연결</strong>하는 것이 모범 사례입니다. 인스턴스 메타데이터 서비스(IMDS)를 통해 자동으로 교체되는 임시 보안 자격 증명을 사용할 수 있습니다. 장기 액세스 키를 사용자 데이터(User Data) 스크립트나 커스텀 AMI 이미지에 하드코딩하는 것은 유출 위험이 매우 큰 안티 패턴이며, 루트 자격 증명은 절대 사용해서는 안 됩니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1">
-  <p class="q-title">Q8. 다음 주 이틀간 대형 이벤트가 있어 특정 AZ에서 c7i 인스턴스 50대를 <em>반드시</em> 시작할 수 있어야 합니다. 1년 이상 약정은 하고 싶지 않습니다. 가장 적합한 것은?</p>
+  <p class="q-title">Q8. (시험형) 다음 주에 이틀 동안 진행되는 전국 단위 온라인 콘서트 티켓 예매 이벤트를 위해 특정 가용 영역(AZ)에서 최신 컴퓨팅 인스턴스(c7i.4xlarge) 50대를 <em>용량 부족 오류(InsufficientInstanceCapacity) 없이 확실하게</em> 시작할 수 있어야 합니다. 회사는 이틀간의 이벤트가 끝나면 즉시 자원을 반납하길 원하며 1년 이상의 장기 약정은 체결하고 싶지 않습니다. 가장 적합한 옵션은 무엇인가요?</p>
   <div class="options">
     <button class="opt">Compute Savings Plans 1년 구매</button>
     <button class="opt">그 AZ에 On-Demand 용량 예약 즉시 생성</button>
     <button class="opt">리전 범위 Standard RI를 1년 동안 구매</button>
     <button class="opt">Spot 인스턴스 요청들을 이벤트 전에 미리 생성</button>
   </div>
-  <div class="feedback"><p>온디맨드 용량 예약은 특정 AZ의 용량을 확보하고, 즉시 사용형은 기간 약정이 없어 이벤트 후 취소하면 됩니다. Savings Plans와 리전 RI는 <strong>할인만</strong> 주고 용량은 보장하지 않으며, 둘 다 1년 이상 약정입니다. Spot은 용량이 있을 때만 실행되고 회수될 수 있습니다.</p></div>
+  <div class="feedback"><p>온디맨드 용량 예약(On-Demand Capacity Reservations)은 특정 가용 영역(AZ)에 원하는 인스턴스 용량을 100% 물리적으로 확보해 주며, 기간 약정이 없어 이벤트가 끝난 뒤 즉시 예약을 취소(해제)할 수 있습니다. Savings Plans와 리전 단위 RI는 청구 할인만 제공할 뿐 용량 확보를 보장하지 않으며 둘 다 1년 이상의 장기 약정입니다. 스팟 인스턴스는 피크 시간대에 여유 용량이 부족하면 시작되지 않거나 실행 도중 회수될 수 있습니다.</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) 워크로드 세 종류(중단 가능 / 상시 프로덕션 / 단기·불규칙·중단 불가)에 맞는 구매 옵션은? (2) Compute SP, EC2 Instance SP, Standard RI, Convertible RI의 유연성 차이는? (3) 배치 그룹 세 가지의 목표와 한계 숫자는?</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
+  <p>교재를 보지 말고 직접 머릿속에서 인출하여 적어보세요.<br>
+  (1) 워크로드의 세 가지 성격(작업 중단 허용 / 24/7 연중무휴 상시 프로덕션 / 단기·불규칙·중단 불가)에 맞는 최적의 구매 옵션은 각각 무엇인가요?<br>
+  (2) Compute Savings Plans, EC2 Instance Savings Plans, Standard RI, Convertible RI의 유연성과 할인율 차이는 무엇인가요?<br>
+  (3) 세 가지 배치 그룹(클러스터, 분산, 파티션)의 핵심 목표와 가용 영역당 제약 숫자(한계 수량)는 각각 무엇인가요?</p>
+  <textarea placeholder="여기에 직접 요약하여 적어보세요. 타이핑하는 과정에서 장기 기억으로 전환됩니다."></textarea>
   <button data-reveal>답 확인</button>
   <div class="answer">
-    <p>(1) 중단 가능 → <strong>Spot</strong>(최대 90% 할인, 2분 전 알림). 상시 프로덕션 → <strong>Savings Plans/RI</strong>(1년·3년). 특정 AZ 용량 보장이 필요하면 <strong>용량 예약</strong>을 더함. 단기·불규칙·중단 불가 → <strong>온디맨드</strong>.</p>
-    <p>(2) Compute SP: 패밀리·리전·OS 무관 + Fargate·Lambda(최대 66%). EC2 Instance SP: 한 리전의 한 패밀리(최대 72%). Standard RI: 수정만, 교환 불가, Marketplace 판매 가능. Convertible RI: 다른 Convertible RI로 교환 가능, 판매 불가. AWS는 RI보다 SP 권장.</p>
-    <p>(3) 클러스터: 단일 AZ, 저지연·고처리량. 분산: 서로 다른 하드웨어, AZ당 실행 인스턴스 7개. 파티션: 랙 분리, AZ당 파티션 7개, HDFS·HBase·Cassandra.</p>
+    <p>(1) 작업 중단 허용(배치·빅데이터) → <strong>스팟 인스턴스(Spot)</strong> (최대 90% 할인). 상시 프로덕션(1~3년) → <strong>Savings Plans / RI</strong> (특정 AZ 용량 보장 필요 시 '용량 예약' 결합). 단기·불규칙·중단 불가 → <strong>온디맨드(On-Demand)</strong>.<br>
+    (2) <strong>Compute SP</strong>: 패밀리·크기·리전·OS 무관 + Fargate·Lambda 포괄 적용(최대 66% 할인). <strong>EC2 Instance SP</strong>: 특정 리전의 특정 패밀리에 고정, 크기·OS 변경 가능(최대 72% 할인). <strong>Standard RI</strong>: 패밀리 교환 불가, Marketplace 타사 판매 가능. <strong>Convertible RI</strong>: 다른 패밀리로 도중 교환 가능, 판매 불가. (AWS는 RI보다 관리가 쉬운 Savings Plans를 공식 권장).<br>
+    (3) <strong>클러스터</strong>: 단일 AZ 전용, 초저지연·고대역폭(HPC). <strong>분산</strong>: 서로 다른 물리 랙에 분산, AZ당 실행 인스턴스 최대 7개 제한. <strong>파티션</strong>: 랙 분리 파티션, AZ당 최대 7개 파티션 지원(파티션당 인스턴스 수는 무제한, Cassandra/HDFS용).</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-purchasing-options.html">"Amazon EC2 billing and purchasing options"</a>와 거기서 링크된 <a href="https://docs.aws.amazon.com/savingsplans/latest/userguide/plan-types.html">"Savings Plans types"</a>. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (선택, 무료)</strong>: EC2 콘솔의 <em>Instance Types</em> 화면에서 필터 "On-Demand Hibernation support = true"를 걸어 보고, <em>Spot Requests → Pricing history</em>에서 같은 유형의 AZ별 Spot 가격 차이를 확인해 보세요. 아무것도 시작하지 않으면 요금이 없습니다.</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>1차 공식 문서 (필독, 약 10분)</strong>: <a href="https://docs.aws.amazon.com/ko_kr/AWSEC2/latest/UserGuide/instance-purchasing-options.html">"Amazon EC2 요금 및 구매 옵션"</a>과 <a href="https://docs.aws.amazon.com/ko_kr/savingsplans/latest/userguide/plan-types.html">"Savings Plans 유형"</a> 공식 가이드를 꼭 읽어보세요.</p>
+<p><strong>콘솔 실습 (선택 사항, 비용 0원)</strong>: AWS 콘솔의 EC2 메뉴에서 <em>인스턴스 유형(Instance Types)</em>을 열고 속성 필터에 <code>On-Demand Hibernation support = true</code>를 설정하여 최대 절전을 지원하는 인스턴스 목록을 둘러보세요. 또한 <em>스팟 요청(Spot Requests) → 가격 내역(Pricing history)</em> 화면에서 동일한 인스턴스 유형이라도 가용 영역(AZ)마다 스팟 할인율이 실시간으로 어떻게 다른지 확인해 보세요. 인스턴스를 직접 시작하지 않는 한 요금은 전혀 발생하지 않습니다.</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. 특히 Q1(Compute SP vs EC2 Instance SP)과 Q6(Dedicated Hosts vs Dedicated Instances)은 보기 두 개가 비슷해 보이는 전형적인 시험 함정이라, 어떤 근거로 골랐는지 들으면 다음 레슨을 맞추는 데 도움이 됩니다.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>연습 문제 채점 결과와 헷갈렸던 문항을 확인해 보세요. 특히 Q1(Compute SP vs EC2 Instance SP의 Fargate 적용 여부)이나 Q6(전용 호스트와 전용 인스턴스의 라이선스/소켓 가시성 차이)은 실제 시험에서 수많은 수험생이 오답을 선택하는 대표적인 함정입니다. 질문이 있으시면 언제든 남겨주세요!</p>
 </div>
 
 <h3>출처</h3>

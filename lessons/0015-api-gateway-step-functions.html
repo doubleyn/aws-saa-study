@@ -11,50 +11,62 @@
 
 <p class="kicker">레슨 0015 · 도메인 2 복원력 (26%) · Task 2.1</p>
 <h1>API의 앞문과 작업의 지휘자:<br>API Gateway, Step Functions, 캐싱 전략</h1>
-<p class="lede">0014가 구성 요소 <em>사이</em>를 떼어 놓는 법이었다면, 오늘은 바깥 요청을 받는 <strong>앞문</strong>(API Gateway), 여러 단계를 순서대로 엮는 <strong>지휘자</strong>(Step Functions), 그리고 같은 일을 반복하지 않게 하는 <strong>캐시</strong>를 어디에 둘지 고릅니다.</p>
-<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: 시나리오 8문항</span><span>📌 <a href="../reference/decoupling-and-resilience.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
+<p class="lede">앞선 레슨 0014가 컴포넌트 <em>사이</em>를 떼어 놓는 비동기 결합이었다면, 이번 레슨에서는 외부 클라이언트의 요청을 가장 먼저 맞이하는 <strong>앞문(API Gateway)</strong>, 여러 단계의 마이크로서비스 작업을 순서대로 오케스트레이션하는 <strong>지휘자(Step Functions)</strong>, 그리고 동일한 연산이나 조회를 반복하지 않도록 시스템 부하를 획기적으로 줄여주는 <strong>캐싱(Caching) 전략</strong>을 배웁니다. 시험에서는 "REST API와 HTTP API의 기능 차이", "Step Functions 워크플로 유형(Standard vs Express)의 선택", "요청 경로의 3단계 캐시 계층 배치"를 묻는 문제가 집중 출제됩니다.</p>
+<div class="meta"><span>⏱ 약 20분</span><span>🎯 오늘의 승리: API 앞단 및 워크플로 오케스트레이션 설계, 시나리오 8문항 완전 정복</span><span>📌 <a href="../reference/decoupling-and-resilience.html">치트시트</a> · <a href="../reference/glossary.html">용어집</a></span></div>
 
-<h2>왜 이것부터인가</h2>
+<h2>왜 API Gateway와 Step Functions를 배워야 할까요?</h2>
 <ul>
-  <li><strong>시험에서</strong>: "REST API냐 HTTP API냐", "Standard냐 Express냐", "캐시를 어느 계층에"는 보기 네 개가 모두 그럴듯해 보이는 유형입니다. 판단 기준 몇 개만 외우면 갈립니다.</li>
-  <li><strong>실무에서</strong>: 서버리스 백엔드의 기본 골격이 API Gateway → Lambda이고, 여러 Lambda를 이어 붙이는 순간 Step Functions가 필요해집니다.</li>
+  <li><strong>시험 관점</strong>: "REST API와 HTTP API 중 무엇을 골라야 하는가", "Standard 워크플로와 Express 워크플로 중 어떤 유형이 적합한가", "시스템 병목을 줄이기 위해 캐시를 어느 계층에 두어야 하는가"와 같은 질문은 보기 4개가 모두 정상 동작하는 것처럼 보여 수험생들이 가장 많이 헷갈리는 영역입니다. 서비스별 고유한 제약과 판단 기준을 명확히 정리해 두어야 오답 함정을 피할 수 있습니다.</li>
+  <li><strong>실무 관점</strong>: 현대 서버리스 아키텍처의 기본 골격은 'API Gateway → AWS Lambda'입니다. 하지만 주문 결제, 재고 차감, 배송 요청, 관리자 승인과 같이 여러 단계를 거치는 복잡한 비즈니스 로직을 단 하나의 Lambda 함수 안에 모놀리식으로 작성하거나 여러 함수를 동기식으로 무리하게 이어 붙이면, 중간 장애 시 보상 트랜잭션 실패와 타임아웃 오류가 발생합니다. Step Functions를 도입하면 시각적인 워크플로 상태 머신으로 장애 복구와 재시도를 완벽히 자동화할 수 있습니다.</li>
 </ul>
 
-<h2>API Gateway: REST API vs HTTP API</h2>
-<p>둘 다 RESTful API 제품입니다. <strong>REST API</strong>는 기능이 많고, <strong>HTTP API</strong>는 기능을 줄여 더 낮은 가격에 제공됩니다. AWS 문서의 기준은 간단합니다. API 키, 클라이언트별 스로틀링, 요청 검증, AWS WAF 통합, 프라이빗 엔드포인트가 필요하면 REST API, 아니면 HTTP API입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">[1]</a></sup></p>
+<h2>한눈에 비교하기: API Gateway의 두 가지 모델 (REST API vs HTTP API)</h2>
+<p>Amazon API Gateway는 개발자가 RESTful API와 WebSocket API를 손쉽게 생성, 게시, 유지 관리, 모니터링할 수 있게 해주는 완전 관리형 서비스입니다. RESTful API를 만들 때는 풍부한 엔터프라이즈 기능을 제공하는 <strong>REST API</strong>와, 핵심 기능에 집중하여 지연 시간을 줄이고 비용을 대폭 낮춘 <strong>HTTP API</strong> 중 하나를 선택해야 합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">[1]</a></sup></p>
+
 <table>
-<tr><th>기능</th><th>REST API</th><th>HTTP API</th></tr>
-<tr><td>엔드포인트 유형</td><td>엣지 최적화 · 리전 · 프라이빗</td><td>리전만</td></tr>
-<tr><td>API 키 · 사용량 계획(클라이언트별 스로틀링)</td><td>예</td><td>아니요</td></tr>
-<tr><td>API 캐싱</td><td>예</td><td>아니요</td></tr>
-<tr><td>AWS WAF · 리소스 정책 · 요청 검증</td><td>예</td><td>아니요</td></tr>
-<tr><td>JWT 권한 부여자</td><td>아니요 (Lambda 권한 부여자로 검증)</td><td>예</td></tr>
-<tr><td>IAM · Cognito · Lambda 권한 부여자</td><td>예</td><td>예 (Cognito는 JWT 권한 부여자로)</td></tr>
+<tr><th>비교 기능</th><th>REST API</th><th>HTTP API</th></tr>
+<tr><td>지원 엔드포인트 유형</td><td><strong>엣지 최적화(Edge-optimized)</strong> · 리전(Regional) · 프라이빗(Private)</td><td><strong>리전(Regional)</strong> 전용</td></tr>
+<tr><td>API 키 및 사용량 계획 (클라이언트별 스로틀링)</td><td><strong>지원 (예)</strong> (파트너별 할당량 및 초당 요청 수 차등 제한 가능)</td><td><strong>미지원 (아니요)</strong></td></tr>
+<tr><td>내장 API 캐싱 (API Caching)</td><td><strong>지원 (예)</strong> (스테이지 단위로 TTL 기반 캐시 활성화)</td><td><strong>미지원 (아니요)</strong></td></tr>
+<tr><td>보안 및 거버넌스 (WAF, 리소스 정책, 요청 검증)</td><td><strong>지원 (예)</strong> (AWS WAF 연동, IP 차단 리소스 정책, JSON 스키마 유효성 검증)</td><td><strong>미지원 (아니요)</strong> (AWS WAF 미지원)</td></tr>
+<tr><td>네이티브 JWT 권한 부여자 (OIDC / OAuth2)</td><td>미지원 (직접 작성한 Lambda 권한 부여자로 검증 필요)</td><td><strong>기본 내장 지원 (예)</strong> (빠르고 저렴하게 JWT 검증)</td></tr>
+<tr><td>비용 및 성능 특성</td><td>다양한 고급 기능을 제공하는 대신 상대적으로 비용이 높음</td><td>REST API 대비 <strong>최대 71% 저렴</strong>하며 지연 시간이 극히 낮음</td></tr>
 </table>
-<p class="muted" style="font-size:.85rem">표 전체 출처: <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">Choose between REST APIs and HTTP APIs</a> [1]</p>
-<p>엔드포인트 유형: <strong>엣지 최적화</strong>는 가장 가까운 CloudFront POP으로 요청을 보내 지리적으로 흩어진 클라이언트에 유리하며 REST API의 기본값입니다. <strong>리전</strong>은 같은 리전의 클라이언트용, <strong>프라이빗</strong>은 VPC 안에서 인터페이스 VPC 엔드포인트로만 접근합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-endpoint-types.html">[2]</a></sup></p>
+<p class="muted" style="font-size:.85rem">표 출처: AWS 공식 가이드 <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">Choose between REST APIs and HTTP APIs</a> [1]</p>
 
-<h3>스로틀링</h3>
-<p>API Gateway는 <strong>토큰 버킷</strong> 알고리즘으로 계정·리전 단위의 요청 속도와 버스트를 검사하고, 한도를 넘으면 클라이언트는 <code>429 Too Many Requests</code>를 받습니다. 한도는 좁은 쪽부터 사용량 계획의 클라이언트별·메서드별 → 스테이지의 메서드별 → 계정(리전별) → AWS 리전 순으로 적용됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-request-throttling.html">[3]</a></sup> 계정 기본값은 리전당 초당 10,000건, 버킷 용량 5,000건이며 증가를 요청할 수 있습니다(일부 리전은 더 낮음).<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html">[4]</a></sup></p>
+<h3>REST API의 3대 엔드포인트 유형 상세</h3>
+<ul>
+<li><strong>엣지 최적화(Edge-optimized)</strong>: 전 세계에 분산된 CloudFront Edge Location(POP)을 통해 클라이언트 요청을 수신하여 AWS 백본 네트워크를 타고 API Gateway로 라우팅합니다. 전 세계 여러 대륙에 흩어져 있는 지리적 분산 사용자에게 최적의 짧은 왕복 지연 시간을 제공하며, REST API 생성 시의 <strong>기본값</strong>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-endpoint-types.html">[2]</a></sup></li>
+<li><strong>리전(Regional)</strong>: API Gateway가 배포된 동일한 AWS 리전 내의 클라이언트(예: 같은 리전의 EC2, ECS, 웹 프론트엔드)를 주 대상으로 합니다. 자체적인 CloudFront 배포를 직접 구성하여 API 앞단에 붙이고 세부 캐싱 정책을 제어하고자 할 때도 리전 엔드포인트를 선택합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-endpoint-types.html">[2]</a></sup></li>
+<li><strong>프라이빗(Private)</strong>: 인터넷 공용망에 API를 일체 공개하지 않고, 오직 내부 VPC 안에서 <strong>인터페이스 VPC 엔드포인트(AWS PrivateLink)</strong>를 통해서만 안전하게 호출할 수 있는 내부 전용 비공개 엔드포인트입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-endpoint-types.html">[2]</a></sup></li>
+</ul>
 
-<h3>Lambda 통합과 시간 제한</h3>
-<p><strong>Lambda 프록시 통합</strong>에서는 API Gateway가 클라이언트 요청 전체(헤더, 쿼리 문자열, 경로 변수, 본문 등)를 Lambda의 이벤트로 넘기고, 함수는 정해진 형식(<code>statusCode</code>, <code>headers</code>, <code>body</code>)으로 응답해야 합니다. 형식이 틀리면 <code>502 Bad Gateway</code>입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html">[7]</a></sup> REST API의 통합 시간 제한은 50밀리초~29초입니다. 리전·프라이빗 API는 29초 초과로 올릴 수 있지만 계정 스로틀 한도가 줄어들 수 있고, 엣지 최적화 API는 올릴 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-execution-service-limits-table.html">[6]</a></sup> 오래 걸리는 작업을 동기 API 뒤에 두면 안 되는 이유입니다. 이럴 땐 요청을 SQS나 Step Functions로 넘기고 바로 응답합니다(API Gateway는 Lambda 외에 AWS 서비스와도 직접 통합됩니다<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">[1]</a></sup>).</p>
+<h3>API Gateway의 요청 제어: 스로틀링(Throttling)</h3>
+<p>API Gateway는 백엔드 시스템(Lambda, 내부 DB 등)이 트래픽 폭주로 마비되는 것을 막기 위해 <strong>토큰 버킷(Token Bucket)</strong> 알고리즘을 사용하여 지속적인 요청 속도(RPS)와 순간적인 폭발 요청량(Burst)을 정밀하게 제어합니다. 허용된 한도를 초과하여 유입된 요청에 대해 API Gateway는 백엔드를 호출하지 않고 클라이언트에게 즉시 <code>429 Too Many Requests</code> HTTP 상태 코드를 반환합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-request-throttling.html">[3]</a></sup></p>
+<p>스로틀링 한도는 가장 좁고 세분화된 범위부터 순차적으로 평가됩니다: <strong>(1) 사용량 계획의 클라이언트/API 키별 한도 → (2) 스테이지 내 메서드별 한도 → (3) 계정 전체 리전 기본 한도 (초당 10,000건, 버스트 5,000건)</strong> 순으로 적용됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html">[4]</a></sup></p>
 
-<h2>Step Functions: 워크플로 오케스트레이션</h2>
-<p>Step Functions는 <strong>상태 머신</strong>(워크플로) 위에서 동작합니다. 각 단계가 <strong>상태</strong>이고, Task 상태가 Lambda 호출 같은 작업 단위를 맡습니다. 기본 제공 기능으로 <code>Choice</code>(데이터 기반 분기), <code>Retry</code>/<code>Catch</code>(재시도·대체 경로), <code>Parallel</code>, <code>Map</code>(항목별 병렬 처리), 그리고 콜백 토큰으로 사람의 승인을 기다리는 패턴이 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html">[8]</a></sup> 오류 처리·재시도·순서 제어를 함수 코드 대신 워크플로가 맡는다는 것이 핵심입니다.</p>
+<h3>Lambda 프록시 통합과 29초 타임아웃 제한</h3>
+<p><strong>Lambda 프록시 통합(Lambda Proxy Integration)</strong>은 가장 보편적으로 사용되는 통합 방식으로, API Gateway가 클라이언트의 HTTP 요청 전체(헤더, 쿼리 파라미터, 경로 변수, 바디, 인증 컨텍스트 등)를 가공 없이 단일 JSON 객체로 묶어 Lambda 함수의 이벤트 파라미터로 그대로 전달합니다. 이때 Lambda 함수는 반드시 약속된 정해진 JSON 규격(<code>statusCode</code>, <code>headers</code>, <code>body</code> 필드)으로 응답해야 하며, 응답 형식이 어긋나면 API Gateway는 클라이언트에게 <code>502 Bad Gateway</code> 에러를 반환합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html">[7]</a></sup></p>
+<p><strong>결정적 제약: 통합 시간 제한(29초)</strong>: API Gateway REST API의 백엔드 통합 시간 제한(Integration Timeout)은 <strong>최대 29초</strong>입니다 (엣지 최적화 API는 증설 불가).<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-execution-service-limits-table.html">[6]</a></sup> 비디오 트랜스코딩이나 대용량 데이터 분석처럼 29초 이상 걸리는 무거운 작업을 동기식 API 뒤에 그대로 두면 <code>504 Gateway Timeout</code>이 발생합니다. 따라서 긴 작업은 동기 호출을 피하고, <strong>API Gateway가 요청을 SQS 큐에 넣거나 Step Functions 상태 머신을 비동기 실행</strong>시킨 뒤 클라이언트에게는 <code>202 Accepted</code> 접수 확인 응답을 즉시 돌려주는 비동기 분리 패턴을 구축해야 합니다. (API Gateway는 Lambda 외에도 SQS, SNS, DynamoDB 등 다양한 AWS 서비스와 직접 통합할 수 있습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">[1]</a></sup>)</p>
+
+<h2>핵심 특징: Step Functions 워크플로 오케스트레이션 (Standard vs Express)</h2>
+<p>AWS Step Functions는 분산된 여러 마이크로서비스와 서버리스 함수들을 시각적인 <strong>상태 머신(State Machine)</strong>으로 엮어주는 워크플로 오케스트레이션 서비스입니다. 각 단계를 '상태(State)'로 정의하며, <code>Task</code>(Lambda 호출, ECS 작업 실행 등), <code>Choice</code>(데이터 조건에 따른 분기), <code>Retry/Catch</code>(지수 백오프 기반 재시도 및 실패 시 대체 경로), <code>Parallel</code>(동시 병렬 실행), <code>Map</code>(동적 컬렉션 배열 처리) 등의 강력한 빌트인 기능을 제공합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html">[8]</a></sup> 복잡한 오류 처리와 재시도 로직을 함수 코드에서 완전히 분리해 낼 수 있다는 점이 핵심입니다.</p>
+
 <table>
-<tr><th></th><th>Standard (기본값)</th><th>Express</th></tr>
-<tr><td>최대 실행 시간</td><td><strong>1년</strong></td><td><strong>5분</strong></td></tr>
-<tr><td>실행 보장</td><td><strong>정확히 한 번</strong> → 결제 같은 비멱등 작업</td><td>비동기: <strong>최소 한 번</strong> · 동기: 최대 한 번 → 멱등 작업</td></tr>
-<tr><td>요금 기준</td><td>상태 전환 수</td><td>실행 수 · 실행 시간 · 메모리</td></tr>
-<tr><td>실행 기록</td><td>Step Functions API로 90일간 조회</td><td>CloudWatch Logs로 (로깅 활성화 필요)</td></tr>
-<tr><td>콜백(<code>.waitForTaskToken</code>) · <code>.sync</code></td><td>지원</td><td><strong>미지원</strong></td></tr>
-<tr><td>대표 용도</td><td>오래 걸리고 감사가 필요한 업무 흐름</td><td>IoT 수집, 스트리밍 변환, 모바일 백엔드 등 대량 이벤트</td></tr>
+<tr><th>비교 항목</th><th>Standard 워크플로 (기본값)</th><th>Express 워크플로</th></tr>
+<tr><td>최대 실행 시간</td><td><strong>최대 1년</strong> (장기 실행 가능)</td><td><strong>최대 5분</strong> (단기 실행 전용)</td></tr>
+<tr><td>실행 보장 (Execution Guarantee)</td><td><strong>정확히 한 번 실행 (Exactly-once)</strong><br>결제, 송금, 주문 승인 등 중복 실행되면 안 되는 비멱등 작업에 필수적</td><td>비동기 실행 시: <strong>최소 한 번 (At-least-once)</strong><br>동기 실행 시: 최대 한 번 (At-most-once)<br>중복 호출될 수 있으므로 모든 단계가 <strong>멱등성</strong>을 가져야 함</td></tr>
+<tr><td>요금 부과 기준</td><td><strong>상태 전환 횟수(State Transition)</strong>당 과금</td><td><strong>실행 횟수, 실행 시간(ms), 할당 메모리</strong> 기준 과금</td></tr>
+<tr><td>실행 기록 감사 및 디버깅</td><td>Step Functions 콘솔 및 API에서 <strong>90일간</strong> 전체 시각적 실행 기록, 단계별 입출력 데이터 영구 보관</td><td>CloudWatch Logs로만 이벤트 로깅 지원 (별도 활성화 필요, 콘솔 실행 이력 미제공)</td></tr>
+<tr><td>외부 콜백 패턴 (<code>.waitForTaskToken</code>)</td><td><strong>완벽 지원</strong> (인간 관리자의 이메일 승인이 올 때까지 수일간 일시 중지 대기 가능)</td><td><strong>미지원</strong> (태스크 토큰 콜백 패턴 사용 불가)</td></tr>
+<tr><td>대표적인 적합 시나리오</td><td>사람의 승인이 필요한 업무 프로세스, 결제 및 주문 처리 흐름, 장시간 소요되는 데이터 ETL 및 머신러닝 파이프라인</td><td>IoT 센서 대량 데이터 수집, 스트리밍 실시간 변환, 모바일 백엔드 등 초당 수천~수만 건의 고빈도 이벤트 처리</td></tr>
 </table>
-<p class="muted" style="font-size:.85rem">표 출처: <a href="https://docs.aws.amazon.com/step-functions/latest/dg/choosing-workflow-type.html">Choosing workflow type</a> [9]. 워크플로 유형은 생성 후 바꿀 수 없습니다.<sup class="cite"><a href="https://docs.aws.amazon.com/step-functions/latest/dg/choosing-workflow-type.html">[9]</a></sup></p>
-<p>Lambda 함수 하나는 최대 900초(15분)까지만 실행됩니다.<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html">[10]</a></sup> SQS 가시성 제한 시간도 최대 12시간이라, 그보다 긴 처리는 Step Functions로 나누라고 SQS 문서가 직접 권합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html">[14]</a></sup></p>
+<p class="muted" style="font-size:.85rem">표 출처: AWS 공식 가이드 <a href="https://docs.aws.amazon.com/step-functions/latest/dg/choosing-workflow-type.html">Choosing workflow type in Step Functions</a> [9]. 상태 머신 생성 후에는 워크플로 유형을 변경할 수 없습니다.</p>
+<p>Lambda 함수의 단일 타임아웃은 최대 15분(900초)이며<sup class="cite"><a href="https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html">[10]</a></sup>, SQS 가시성 제한 시간도 최대 12시간입니다.<sup class="cite"><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html">[14]</a></sup> 따라서 15분을 넘거나 며칠 이상 지속되는 복잡한 비즈니스 프로세스는 단일 함수나 단순 큐로 해결할 수 없으며, 반드시 <strong>Step Functions Standard 워크플로</strong>로 잘게 쪼개어 오케스트레이션해야 합니다.</p>
 
-<h2>캐싱 전략: 어느 계층에 둘까</h2>
+<h2>캐싱 전략: 요청 경로의 3대 캐시 계층 (어느 계층에 둘 것인가?)</h2>
+<p>시스템의 응답 지연을 낮추고 백엔드 데이터베이스의 부하를 덜어주기 위해, 요청이 이동하는 네트워크 경로의 각 지점에 캐시를 배치할 수 있습니다.</p>
+
 <figure>
 <svg viewBox="0 0 620 170" role="img" aria-label="요청 경로의 세 캐시 계층: 사용자 가까이의 CloudFront 엣지 캐시, API Gateway 스테이지 캐시, 데이터베이스 앞의 ElastiCache" style="width:100%;height:auto;font-family:var(--sans)">
   <defs><marker id="ah15" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
@@ -71,34 +83,38 @@
   <line x1="335" y1="77" x2="356" y2="77" stroke="var(--muted)" marker-end="url(#ah15)"/>
   <line x1="430" y1="77" x2="451" y2="77" stroke="var(--muted)" marker-end="url(#ah15)"/>
   <line x1="540" y1="77" x2="556" y2="77" stroke="var(--muted)" marker-end="url(#ah15)"/>
-  <text x="310" y="140" text-anchor="middle" font-size="12" fill="var(--muted)">왼쪽 캐시에서 맞을수록 뒤쪽 계층은 일을 덜 한다 · 캐시된 데이터는 항상 오래된 데이터로 취급</text>
+  <text x="310" y="140" text-anchor="middle" font-size="12" fill="var(--muted)">왼쪽 캐시에서 적중(Hit)할수록 뒤쪽 계층의 호출과 비용이 감소함</text>
 </svg>
 </figure>
-<table>
-<tr><th>계층</th><th>무엇을</th><th>핵심 사실</th></tr>
-<tr><td><strong>CloudFront</strong></td><td>정적·동적 웹 콘텐츠를 사용자 가까이에서</td><td>지연이 가장 낮은 엣지 로케이션으로 라우팅, 엣지에 없으면 오리진에서 가져옴. 기본 24시간 캐시<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[11]</a></sup></td></tr>
-<tr><td><strong>API Gateway 캐시</strong></td><td>엔드포인트 응답을 스테이지 단위로</td><td>REST API만. TTL 기본 300초, 최대 3600초, 0이면 비활성. 기본으로 <code>GET</code>만 캐시. 캐시 크기별 <strong>시간당 과금</strong>, 프리 티어 아님<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-caching.html">[5]</a></sup></td></tr>
-<tr><td><strong>ElastiCache</strong></td><td>비싼 DB 쿼리 결과, 세션</td><td>인메모리 키-값 저장소로 1밀리초 미만 접근. 자주 읽히고 잘 안 바뀌는 데이터가 대상<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/elasticache-use-cases.html">[12]</a></sup> (자세히는 레슨 0022)</td></tr>
-</table>
-<p>무엇을 캐시할지는 ElastiCache 문서의 세 질문으로 정합니다. 가져오기 느리거나 비싼가, 자주 읽히는가, 조금 오래된 값이어도 괜찮은가.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/elasticache-use-cases.html">[12]</a></sup></p>
 
-<h2>상태 비저장 설계</h2>
-<p>Well-Architected 신뢰성 원칙 REL05-BP06은 요청 사이에 로컬 디스크나 메모리의 데이터에 의존하지 않도록 상태를 빼내라고 합니다. 그러면 서버를 언제든 교체할 수 있고, 어느 인스턴스든 아무 요청이나 처리하므로 <strong>수평 확장</strong>이 됩니다. 세션 데이터를 옮길 곳으로 ElastiCache, DynamoDB, EFS, MemoryDB를 예로 듭니다.<sup class="cite"><a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_mitigate_interaction_failure_stateless.html">[13]</a></sup> 상태 비저장이 되어야 Auto Scaling 축소나 인스턴스 장애 때 사용자가 로그아웃되지 않습니다.</p>
+<table>
+<tr><th>캐시 계층</th><th>무엇을 캐시하는가</th><th>핵심 특징 및 주의사항</th></tr>
+<tr><td><strong>Amazon CloudFront</strong></td><td>전 세계 사용자에게 정적 웹 에셋(HTML, CSS, JS, 이미지, 미디어) 및 캐시 가능한 동적 웹 콘텐츠를 최전선에서 제공</td><td>전 세계 수백 개 이상의 엣지 로케이션에 사본을 캐시하여 오리진(S3, ALB) 서버의 대역폭과 부하를 극적으로 절감. 기본 TTL은 24시간.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Introduction.html">[11]</a></sup></td></tr>
+<tr><td><strong>API Gateway 캐시</strong></td><td>특정 배포 스테이지의 REST API 엔드포인트 응답 결과를 캐시</td><td><strong>REST API에서만 지원</strong> (HTTP API 미지원). TTL 기본값 300초(5분), 최대 3,600초(1시간). 기본적으로 <code>GET</code> 메서드 응답만 캐시됨. 주의: 프로비저닝된 캐시 메모리 크기(0.5 GB~237 GB)에 따라 <strong>시간당 요금이 상시 부과</strong>되므로 프리 티어가 아닙니다.<sup class="cite"><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-caching.html">[5]</a></sup></td></tr>
+<tr><td><strong>Amazon ElastiCache</strong><br>(Redis / Memcached)</td><td>자주 실행되는 비싼 관계형 DB 쿼리 결과, 사용자 인증 세션, 실시간 리더보드 데이터</td><td>초당 수백만 건의 읽기/쓰기를 <strong>서브 밀리초(1ms 미만)</strong>의 극도로 짧은 지연 시간으로 제공하는 인메모리 캐시. 데이터베이스 바로 앞단에 위치하여 DB 읽기 부하를 대폭 줄임.<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/elasticache-use-cases.html">[12]</a></sup> (자세한 내용은 레슨 0022에서 다룸)</td></tr>
+</table>
+<p><strong>무엇을 캐시해야 할까?</strong> AWS 공식 권장 질문 3가지:<sup class="cite"><a href="https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/elasticache-use-cases.html">[12]</a></sup> (1) 데이터를 원본에서 가져오는 데 많은 시간과 비용이 드는가? (2) 데이터가 여러 사용자에게 빈번하게 반복 조회되는가? (3) 약간 오래된(Stale) 데이터가 일시적으로 반환되어도 비즈니스상 허용되는가?</p>
+
+<h2>상태 비저장(Stateless) 아키텍처와 세션 외부화</h2>
+<p>AWS Well-Architected 신뢰성 원칙(REL05-BP06)에서는 "개별 요청 처리 시 특정 가상 서버의 로컬 메모리나 로컬 디스크에 존재하는 상태 데이터에 의존하지 말 것"을 강력히 권고합니다.<sup class="cite"><a href="https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_mitigate_interaction_failure_stateless.html">[13]</a></sup><br>
+사용자의 로그인 세션 정보를 웹 서버의 로컬 메모리에 저장하면, Auto Scaling 그룹이 트래픽 감소로 인스턴스를 축소(Scale-in)하여 종료하거나 인스턴스 하드웨어에 고장이 발생했을 때, 해당 서버에 연결되어 있던 사용자들이 강제로 로그아웃되는 심각한 사용자 경험 저하가 발생합니다. 세션 정보를 서버 밖의 <strong>Amazon ElastiCache</strong>나 <strong>Amazon DynamoDB</strong>와 같은 외부 고가용성 인메모리/NoSQL 저장소로 분리(세션 외부화)하면, 모든 웹 서버가 완벽한 **상태 비저장(Stateless)**이 되어 어느 서버든 모든 요청을 자유롭게 처리할 수 있으며, 무중단 오토 스케일링과 완벽한 내결함성이 달성됩니다.</p>
 
 <div class="callout">
-<p class="label">시험 단골</p>
+<p class="label">시험에 자주 나오는 핵심 패턴</p>
 <ul>
-  <li>"API 키", "파트너별 사용량 제한", "WAF", "캐싱", "프라이빗 API" → <strong>REST API</strong>. "가장 저렴한", "단순 프록시", "JWT" → <strong>HTTP API</strong></li>
-  <li>"429" → 스로틀링. 백엔드 보호는 <strong>스테이지/사용량 계획 스로틀링</strong>, 같은 읽기 반복은 <strong>캐시</strong></li>
-  <li>"여러 단계 + 재시도 + 사람 승인 + 감사", "15분 넘는 흐름" → <strong>Step Functions Standard</strong></li>
-  <li>"초당 대량 이벤트", "짧고 멱등" → <strong>Express</strong></li>
-  <li>"전 세계 사용자, 정적 콘텐츠 느림" → <strong>CloudFront</strong>. "같은 DB 쿼리 반복" → <strong>ElastiCache</strong></li>
-  <li>"축소 시 사용자 로그아웃" → 세션을 <strong>ElastiCache/DynamoDB로 외부화</strong>(상태 비저장)</li>
+  <li>"파트너별 API 키 발급 및 사용량 계획(호출량 차등 제한)", "API 캐싱", "AWS WAF 연동", "프라이빗 API 엔드포인트" → <strong>API Gateway REST API</strong></li>
+  <li>"가장 저렴한 비용(최대 71% 절감)", "단순 HTTP 프록시", "OIDC/JWT 네이티브 권한 부여" → <strong>API Gateway HTTP API</strong></li>
+  <li>클라이언트가 <code>429 Too Many Requests</code> 수신 → API Gateway의 <strong>속도/버스트 스로틀링 한도 초과</strong>. 백엔드 보호는 스로틀링, 반복 읽기 부하는 <strong>API 캐싱</strong> 활성화</li>
+  <li>"여러 단계의 비즈니스 로직 + 재시도/대체 경로 + 사람의 승인 대기 + 90일 실행 이력 감사", "15분 이상 실행" → <strong>Step Functions Standard 워크플로</strong></li>
+  <li>"초당 수천~수만 건의 대량 이벤트 수집", "짧은 실행 시간", "비용 최소화", "멱등성 보장" → <strong>Step Functions Express 워크플로</strong></li>
+  <li>"전 세계 사용자의 정적 웹 에셋 다운로드 지연 단축" → <strong>Amazon CloudFront 엣지 캐시</strong></li>
+  <li>"동일한 복잡한 DB 쿼리 반복 호출로 인한 데이터베이스 병목 해결" → <strong>Amazon ElastiCache 인메모리 캐시</strong></li>
+  <li>"Auto Scaling 축소(Scale-in) 시 사용자 로그인 세션이 끊김" → 세션을 <strong>ElastiCache 또는 DynamoDB로 외부화하여 상태 비저장(Stateless) 웹 계층 구축</strong></li>
+  <li>"API Gateway 뒤 백엔드가 29초 타임아웃 제한에 걸림" → API Gateway에서 <strong>SQS 큐로 요청을 즉시 버퍼링하거나 Step Functions 비동기 호출</strong> 후 202 응답 반환</li>
 </ul>
 </div>
 
 <h2>연습</h2>
-<p>기억으로 푸세요.</p>
 
 <div class="quiz-q" data-answer="1">
   <p class="q-title">Q1. 회사가 외부 파트너에게 API를 공개합니다. 파트너마다 API 키를 발급하고, 파트너별로 초당 요청 수와 월 할당량을 다르게 제한해야 합니다. 어떤 구성이 맞습니까?</p>
@@ -108,7 +124,7 @@
     <button class="opt">ALB 리스너 규칙에서 파트너별로 요청 속도를 제한함</button>
     <button class="opt">HTTP API 스테이지에 기본 스로틀링을 설정해 둠</button>
   </div>
-  <div class="feedback"><p>API 키와 클라이언트별 스로틀링·할당량(사용량 계획)은 <strong>REST API에만</strong> 있습니다. HTTP API는 더 저렴하지만 이 기능이 없고, JWT 권한 부여자는 인증일 뿐 파트너별 사용량을 제한하지 않습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>REST API에 API 키와 사용량 계획(Usage Plan)을 구성하는 것</strong>입니다. API 키 발급 및 고객/파트너별로 초당 요청 속도(Rate)와 월간 총 할당량(Quota)을 세분화하여 차등 제한하는 기능은 오직 <strong>API Gateway REST API</strong>에서만 제공됩니다. HTTP API는 가격이 더 저렴하지만 API 키와 사용량 계획 기능을 아예 지원하지 않으며, JWT 권한 부여자는 인증용일 뿐 파트너별 사용량을 제한하지 못합니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
@@ -119,7 +135,7 @@
     <button class="opt">Lambda 응답 형식이 프록시 형식과 달랐다</button>
     <button class="opt">요청이 스로틀링의 속도와 버스트 한도를 초과함</button>
   </div>
-  <div class="feedback"><p>429는 토큰 버킷의 속도·버스트 한도를 넘어 API Gateway가 스로틀링했다는 뜻입니다. 프록시 응답 형식 오류는 502, 권한 거부는 401/403 계열입니다. 대응은 클라이언트 재시도(속도 제한), 스로틀링 한도 조정이나 증가 요청, 반복 읽기라면 캐싱입니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>요청이 스로틀링의 속도와 버스트 한도를 초과한 것</strong>입니다. HTTP 상태 코드 <code>429 Too Many Requests</code>는 API Gateway에 설정된 토큰 버킷의 요청 속도(RPS) 또는 버스트 한도를 초과하여 API Gateway 서비스 자체에서 클라이언트의 호출을 차단했음을 의미합니다. Lambda 통합 시간 초과는 504, 권한 부여자 토큰 거부는 401/403, 프록시 응답 규격 불일치는 502 에러로 나타납니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
@@ -130,7 +146,7 @@
     <button class="opt">HTTP API로 옮기고 자동 배포를 활성화한다</button>
     <button class="opt">계정 스로틀 한도의 증가를 AWS에 요청해 둔다</button>
   </div>
-  <div class="feedback"><p>API Gateway 캐시는 스테이지 단위로 켜고, 기본으로 <code>GET</code>을 TTL(기본 300초) 동안 캐시해 엔드포인트 호출을 줄입니다. HTTP API에는 캐싱 기능이 없습니다. 캐시는 시간당 과금이라는 점도 기억하세요.</p></div>
+  <div class="feedback"><p>정답은 <strong>해당 스테이지에 API 캐싱을 켜고 TTL을 설정하는 것</strong>입니다. API Gateway REST API의 배포 스테이지에서 API 캐싱을 활성화하면, 동일한 <code>GET</code> 요청에 대한 응답 결과를 TTL(기본 300초) 동안 캐시 메모리에 보관합니다. 캐시가 적중(Cache Hit)하는 동안에는 백엔드 Lambda와 DB가 아예 호출되지 않으므로 코드 수정 없이 지연 시간을 대폭 단축하고 백엔드 비용을 크게 절감할 수 있습니다. HTTP API에는 내장 캐싱 기능이 지원되지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
@@ -141,7 +157,7 @@
     <button class="opt">Step Functions Standard 워크플로로 구성함</button>
     <button class="opt">SQS 큐 세 개를 이어 붙이고 단계마다 Lambda를 둔다</button>
   </div>
-  <div class="feedback"><p>Standard는 최대 1년 실행, 정확히 한 번 실행(결제 같은 비멱등 작업), 콜백 토큰으로 사람 승인 대기, 90일 실행 기록을 제공합니다. Express는 5분이 한계이고 콜백 패턴을 지원하지 않습니다. Lambda 하나는 최대 15분이라 며칠짜리 흐름을 담을 수 없습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>Step Functions Standard 워크플로로 구성하는 것</strong>입니다. Standard 워크플로는 최대 1년까지 워크플로를 유지할 수 있으며, 결제와 같은 금융 트랜잭션에 필수적인 '정확히 한 번(Exactly-once)' 실행을 보장합니다. 또한 작업 토큰(<code>.waitForTaskToken</code>)을 통해 관리자의 승인이 올 때까지 수일간 안전하게 대기할 수 있고, 90일간의 상세 실행 이력을 콘솔에서 시각적으로 추적 및 감사할 수 있습니다. 반면 Express 워크플로는 최대 실행 시간이 5분으로 제한되고 콜백 토큰 패턴을 지원하지 않으며, 단일 Lambda 함수는 최대 15분 타임아웃 제한으로 인해 며칠간 대기하는 워크플로를 구현할 수 없습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="1,3">
@@ -152,7 +168,7 @@
     <button class="opt">모든 단계에 .waitForTaskToken 사용</button>
     <button class="opt">재실행돼도 안전하게 각 단계를 멱등하게 설계해 둠</button>
   </div>
-  <div class="feedback"><p>대량·단시간 이벤트 처리는 <strong>Express</strong>가 맞고, 요금도 실행 수·시간·메모리 기준이라 상태 전환마다 과금되는 Standard보다 유리합니다. 비동기 Express는 <strong>최소 한 번</strong> 실행이라 같은 이벤트가 두 번 돌 수 있으므로 단계를 멱등하게 설계해야 합니다. 콜백 패턴은 Express에서 지원하지 않습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>Express 워크플로로 새 상태 머신을 생성한다</strong>와 <strong>재실행돼도 안전하게 각 단계를 멱등하게 설계해 둔다</strong>입니다. 초당 수천 건 이상 대량으로 발생하는 단시간(수 초 이내) 이벤트 처리에는 <strong>Step Functions Express</strong>가 가장 비용 효율적입니다. Standard는 상태 전환마다 과금되어 대량 이벤트 시 비용이 매우 커지지만, Express는 실행 횟수와 실행 시간/메모리 기준으로 과금되기 때문입니다. 또한 비동기 Express 워크플로는 <strong>최소 한 번 이상(At-least-once)</strong> 실행 모델이므로 동일 이벤트가 재실행될 가능성이 있으므로 각 단계가 멱등성을 갖도록 설계해야 합니다. Express에서는 <code>.waitForTaskToken</code> 콜백이 지원되지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="0">
@@ -163,7 +179,7 @@
     <button class="opt">인스턴스를 더 큰 메모리 유형으로 모두 교체해 둠</button>
     <button class="opt">축소 쿨다운을 길게 늘려서 인스턴스 종료를 늦춘다</button>
   </div>
-  <div class="feedback"><p>세션을 ElastiCache나 DynamoDB 같은 외부 저장소로 옮기면 어느 인스턴스든 어떤 요청이든 처리할 수 있어, 인스턴스가 종료돼도 세션이 남습니다(REL05-BP06). 축소를 막거나 늦추는 것은 비용만 늘리고 장애로 인한 인스턴스 교체에는 효과가 없습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>세션을 ElastiCache로 옮겨 상태 비저장(Stateless)화하는 것</strong>입니다. 웹 서버의 로컬 메모리에 사용자 세션을 저장하면 인스턴스 종료 시 세션이 소멸됩니다. 세션 데이터를 Redis/Memcached 기반의 ElastiCache나 DynamoDB 같은 중앙화된 외부 저장소로 분리하면, 웹 서버는 완전한 상태 비저장(Stateless)이 되어 어떤 인스턴스가 종료되거나 교체되더라도 사용자의 로그인 세션이 끊기지 않고 안정적으로 유지됩니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="2">
@@ -174,7 +190,7 @@
     <button class="opt">CloudFront 배포를 만들고 S3를 오리진으로</button>
     <button class="opt">S3 버킷을 더 비싼 스토리지 클래스로 바꾸어 둔다</button>
   </div>
-  <div class="feedback"><p>CloudFront는 사용자에게 지연이 가장 낮은 엣지 로케이션에서 캐시된 사본을 주고, 없을 때만 S3 오리진에서 가져옵니다. ElastiCache는 애플리케이션 뒤쪽의 데이터 캐시라 전 세계 사용자에게 파일을 직접 전달하는 용도가 아닙니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>CloudFront 배포를 만들고 S3를 오리진으로 설정하는 것</strong>입니다. Amazon CloudFront는 전 세계 수백 개 엣지 로케이션을 보유한 글로벌 CDN 서비스입니다. 해외 사용자가 정적 웹 에셋을 요청하면 지리적으로 가장 가까운 엣지 로케이션에서 캐시된 사본을 밀리초 단위로 응답하므로 전송 지연이 극적으로 줄어들며, 오리진인 서울 리전 S3 버킷으로의 직접 요청도 대폭 감소합니다. ElastiCache는 데이터베이스 앞단의 인메모리 캐시이므로 글로벌 정적 파일 배포에 사용되지 않습니다.</p></div>
 </div>
 
 <div class="quiz-q" data-answer="3">
@@ -185,30 +201,30 @@
     <button class="opt">HTTP API로 옮겨서 요청당 비용을 낮추어 대응함</button>
     <button class="opt">API Gateway에서 SQS로 넣고 작업자가 처리</button>
   </div>
-  <div class="feedback"><p>API Gateway는 Lambda뿐 아니라 AWS 서비스와 직접 통합되므로 요청을 SQS에 넣고 바로 응답할 수 있습니다. 큐가 급증을 흡수하고 작업자는 자기 속도로 처리합니다(0014의 버퍼링). 시간 제한을 늘리면 백엔드 과부하는 그대로이고, 계정 스로틀 한도가 줄어들 수도 있습니다.</p></div>
+  <div class="feedback"><p>정답은 <strong>API Gateway에서 SQS로 넣고 작업자가 처리하도록 비동기 결합하는 것</strong>입니다. API Gateway는 중간에 Lambda 코드 없이도 AWS SQS 서비스와 직접 통합(Service Integration)하여 수신한 요청을 큐에 바로 적재할 수 있습니다. 클라이언트에게는 <code>200 OK</code> 또는 <code>202 Accepted</code>를 즉각 반환하고, 백엔드 작업자 풀은 데이터베이스가 감당할 수 있는 안정적인 속도로 큐의 주문을 소비합니다. REST API의 통합 제한 시간(29초)을 늘리는 것은 불가능하거나 문제를 근본적으로 해결하지 못합니다.</p></div>
 </div>
 
 <div class="quiz-score" data-quiz-score></div>
 
-<h2>기억에서 꺼내기</h2>
+<h2>학습 내용 되짚어보기 (인출 연습)</h2>
 <div class="recall">
-  <p>보지 말고 써 보세요. (1) REST API에만 있는 기능 다섯 가지. (2) Step Functions Standard와 Express의 차이(시간·실행 보장·요금·콜백). (3) 캐시 계층 세 개와 각각 언제 쓰는지.</p>
-  <textarea placeholder="여기에 적어 보세요"></textarea>
-  <button data-reveal>답 확인</button>
+  <p>교재를 보지 말고 기억을 떠올려 직접 정리해 보세요. (1) API Gateway REST API에만 있고 HTTP API에는 없는 대표적인 기능 5가지는 무엇인가요? (2) Step Functions의 Standard 워크플로와 Express 워크플로의 4대 차이점(최대 실행 시간, 실행 보장 모델, 요금 체계, 콜백 토큰 지원 여부)은 무엇인가요? (3) CloudFront, API Gateway 스테이지 캐시, ElastiCache의 세 캐시 계층을 배치 목적에 따라 구분해 보세요.</p>
+  <textarea placeholder="여기에 직접 적어 보세요. 배운 내용을 능동적으로 인출하는 과정이 실전 합격의 지름길입니다."></textarea>
+  <button data-reveal>정답 확인하기</button>
   <div class="answer">
-    <p>(1) API 키·사용량 계획(클라이언트별 스로틀링), API 캐싱, AWS WAF, 요청 검증, 프라이빗·엣지 최적화 엔드포인트 (리소스 정책도). HTTP API는 기능이 적은 대신 더 저렴하고 JWT 권한 부여자를 지원.</p>
-    <p>(2) Standard: 최대 1년, 정확히 한 번, 상태 전환 수로 과금, 콜백·.sync 지원, 90일 실행 기록. Express: 최대 5분, 비동기는 최소 한 번(동기는 최대 한 번), 실행 수·시간·메모리로 과금, 콜백 미지원, 기록은 CloudWatch Logs.</p>
-    <p>(3) CloudFront: 전 세계 사용자에게 정적·동적 콘텐츠를 엣지에서. API Gateway 캐시: REST API 스테이지의 반복 GET 응답(TTL 기본 300초, 최대 3600초, 시간당 과금). ElastiCache: 비싼 DB 쿼리 결과와 세션(상태 비저장 설계).</p>
+    <p>(1) <strong>REST API 전용 기능</strong>: API 키 및 사용량 계획(클라이언트별 스로틀링·할당량), API 스테이지 캐싱, AWS WAF 보안 통합, 요청 유효성 검증(Request Validation), 프라이빗/엣지 최적화 엔드포인트 지원 (HTTP API는 리전 전용이자 네이티브 JWT 지원).</p>
+    <p>(2) <strong>Standard vs Express</strong>: 최대 실행 시간(Standard: 최대 1년 vs Express: 최대 5분), 실행 보장(Standard: 정확히 한 번 / Exactly-once vs Express 비동기: 최소 한 번 / At-least-once → 멱등성 필수), 과금 기준(Standard: 상태 전환 횟수당 과금 vs Express: 실행 수·시간·메모리 기준 과금), 콜백 기능(Standard: <code>.waitForTaskToken</code> 지원 vs Express: 미지원).</p>
+    <p>(3) <strong>CloudFront</strong>: 전 세계 사용자에게 가장 가까운 엣지에서 정적/동적 웹 에셋 배포. <strong>API Gateway 스테이지 캐시</strong>: REST API 엔드포인트의 반복되는 <code>GET</code> 응답 캐시(TTL 기본 300초, 시간당 유료). <strong>ElastiCache</strong>: 관계형 데이터베이스 앞단에서 복잡한 쿼리 결과 및 사용자 로그인 세션(상태 비저장 아키텍처)을 서브 밀리초로 제공하는 인메모리 캐시.</p>
   </div>
 </div>
 
-<h2>더 해볼 것</h2>
-<p><strong>1차 자료 (꼭 읽기, 10분)</strong>: <a href="https://docs.aws.amazon.com/step-functions/latest/dg/choosing-workflow-type.html">"Choosing workflow type in Step Functions"</a>. Standard·Express 표 하나에 시험 포인트가 다 있습니다. 시간이 남으면 <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">"Choose between REST APIs and HTTP APIs"</a>도. (한국어: URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>)</p>
-<p><strong>실습 (선택, 프리 티어 범위)</strong>: Step Functions 콘솔에서 샘플 템플릿으로 Standard 상태 머신을 만들어 한 번 실행하고, 그래프 보기에서 각 상태의 입력·출력과 실행 기록을 확인하세요. API Gateway 캐시는 프리 티어가 아니라 시간당 과금되므로, 실습한다면 확인 후 바로 끄세요.</p>
+<h2>추가 학습 및 실습</h2>
+<p><strong>1차 공식 문서 (권장 읽기, 약 10분)</strong>: AWS Step Functions 공식 개발자 가이드의 <a href="https://docs.aws.amazon.com/step-functions/latest/dg/choosing-workflow-type.html">"Choosing workflow type in Step Functions"</a> 문서를 꼭 확인하세요. Standard와 Express의 비교표는 자격증 시험에 직접 출제되는 핵심 요약본입니다. 시간 여유가 있다면 API Gateway의 <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html">"Choose between REST APIs and HTTP APIs"</a> 문서도 함께 훑어보시길 권장합니다. (한국어 번역본은 URL의 <code>docs.aws.amazon.com/</code> 뒤에 <code>ko_kr/</code>를 추가하면 열람 가능합니다.)</p>
+<p><strong>핸즈온 실습 (선택, 프리 티어 범위)</strong>: Step Functions 콘솔에서 기본 샘플 템플릿(예: Catch failure 패턴)을 선택하여 Standard 상태 머신을 하나 생성해 보세요. 콘솔에서 "실행 시작(Start Execution)"을 누르고, 시각적 워크플로 그래프 뷰에서 각 단계의 성공/실패 색상 변화와 상태별 입력/출력 JSON 데이터가 어떻게 흘러가는지 직접 관찰해 보십시오. (주의: API Gateway 캐싱 기능은 프리 티어가 아니며 시간당 상시 과금되므로, 실습할 경우 테스트 후 즉시 비활성화해야 합니다.)</p>
 
 <div class="callout">
-<p class="label">질문하세요</p>
-<p>퀴즈 점수와 틀린 번호를 알려 주세요. Q5(Express의 최소 한 번 → 멱등)와 Q3/Q7(캐시 계층 선택)에서 어떻게 생각했는지 들으면 다음 레슨 난이도를 맞추는 데 도움이 됩니다.</p>
+<p class="label">궁금한 점이 있으신가요?</p>
+<p>퀴즈 점수와 틀렸던 문제가 있다면 편하게 남겨 주세요! 특히 Q5(Express의 최소 한 번 실행 모델에 따른 멱등성 설계)나 Q3/Q7(캐시 계층의 올바른 배치 위치)은 실무 아키텍처 설계와 시험 모두에서 높은 변별력을 갖는 질문입니다. 이해가 잘 가지 않는 부분이 있다면 언제든 질문해 주세요.</p>
 </div>
 
 <h3>출처</h3>
